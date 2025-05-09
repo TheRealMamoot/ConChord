@@ -29,3 +29,5 @@ data/datasets/AAM/*
 !data/processed/IDMT/guitar/.gitkeep
 !data/processed/IDMT/non_guitar/.gitkeep
 !data/processed/AAM/.gitkeep
+
+tests.py
