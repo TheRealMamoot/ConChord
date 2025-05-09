@@ -1,4 +1,3 @@
-conchord/
 __pycache__/
 *.pyc
 *.pyo
@@ -8,7 +7,11 @@ __pycache__/
 .DS_Store
 *.wav
 *.lab
+*.mid
+*.arff
 data/datasets/IDMT/*
+data/datasets/AMM/*
+!data/datasets/AMM/.gitkeep
 !data/datasets/IDMT/guitar/
 !data/datasets/IDMT/guitar/.gitkeep
 !data/datasets/IDMT/non_guitar/

@@ -6,7 +6,7 @@ def get_downloader_parser():
         '--datasets',
         type=str,
         nargs='+',      
-        default=['IDMT'],
+        default=['IDMT','AAM'],
         help='List of dataset names to downlaod (e.g., IDMT)'
     )
     parser.add_argument(
@@ -23,19 +23,7 @@ def get_preprocess_parser():
         '--datasets',
         type=str,
         nargs='+',      
-        default=['IDMT'],
+        default=['IDMT','AAM'],
         help='List of dataset names to preprocess (e.g., IDMT)'
-    )
-    parser.add_argument(
-        '--sr',
-        type=int,
-        default=11025, # Hz
-        help='Sample rate conversion from the original audio.'
-    )
-    parser.add_argument(
-        '--hoplength',
-        type=int,
-        default=512,
-        help='Number of “hops forward” in the audio signal between frames for extracting features (e.g, chromagrams)'
     )
     return parser
