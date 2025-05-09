@@ -1,3 +1,4 @@
+# Python and environment files
 __pycache__/
 *.pyc
 *.pyo
@@ -5,14 +6,26 @@ __pycache__/
 .venv
 *.log
 .DS_Store
+
+# Audio and annotation data
 *.wav
 *.lab
 *.mid
 *.arff
+
+# Ignore all .npz files in processed and subfolders
+data/processed/**/*.npz
+
+# Ignore all datasets content but preserve directory structure with .gitkeep
 data/datasets/IDMT/*
-data/datasets/AMM/*
-!data/datasets/AMM/.gitkeep
-!data/datasets/IDMT/guitar/
+data/datasets/AAM/*
 !data/datasets/IDMT/guitar/.gitkeep
-!data/datasets/IDMT/non_guitar/
 !data/datasets/IDMT/non_guitar/.gitkeep
+!data/datasets/AAM/.gitkeep
+
+# Preserve processed folder structure
+!data/processed/.gitkeep
+!data/processed/IDMT/.gitkeep
+!data/processed/IDMT/guitar/.gitkeep
+!data/processed/IDMT/non_guitar/.gitkeep
+!data/processed/AAM/.gitkeep
