@@ -1,12 +1,13 @@
 import logging
 import os
 
-from librosa.feature import chroma_stft
+from librosa.feature import chroma_cqt
 from librosa import load, frames_to_time
 from mido.midifiles.meta import KeySignatureError
 import numpy as np
 from pretty_midi import PrettyMIDI
 import shutil
+from sklearn.preprocessing import normalize
 from tqdm import tqdm
 
 from config.config import DATASETS, AUDIO_PARAMS
@@ -22,15 +23,25 @@ def preprocess(dataset_names: list[str]):
     for dataset_name in dataset_names:
         dataset = DATASETS[dataset_name]
         src_dir = f'data/datasets/{dataset_name}'
+        npz_name = f'{dataset_name}.npz'
+
         if not os.path.exists(src_dir):
             logging.error(f'{src_dir} directory does not exist!')
             return
         
-        processed_dir = os.path.join(BASE_DIR, dataset_name)
-        os.makedirs(processed_dir, exist_ok=True)
+        output_path = os.path.join(BASE_DIR, npz_name)
+        if os.path.exists(output_path):
+            logging.info(f'Skipping {npz_name} – already processed at {output_path}')
+            continue
+        
         logging.info(f'{dataset_name} preprocess initiated.')
 
         if dataset_name=='IDMT': # Contains .wav and .lab files
+            X = []
+            Y = []
+            sources = []
+            categories = []
+
             sub_dirs = dataset.get('subdirs')
             for dir in sub_dirs:
                 sub_dir = os.path.join(src_dir, dir)
@@ -43,91 +54,133 @@ def preprocess(dataset_names: list[str]):
                                         unit='file',
                                         ncols=80,
                                         bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed} @ {rate_fmt}]'):
-                    
-                    npz_name = wav_file.replace('.wav', '.npz')
-                    output_path = os.path.join(processed_dir, dir, npz_name)
-                    if os.path.exists(output_path):
-                        logging.info(f'Skipping {npz_name} – already processed at {dir}')
-                        continue
 
                     wav_file_path = os.path.join(sub_dir, wav_file)
                     audio, sr = load(wav_file_path, sr=AUDIO_PARAMS.get('sample_rate'))
-                    chroma = chroma_stft(y=audio, sr=sr, hop_length=AUDIO_PARAMS.get('hop_length')).T
+                    chroma = chroma_cqt(y=audio, sr=sr, hop_length=AUDIO_PARAMS.get('hop_length')).T
                     frame_times = frames_to_time(range(chroma.shape[0]), sr=sr, hop_length=AUDIO_PARAMS.get('hop_length'))
                     chord_labels = align_labels_to_frames(frame_times, lab_segments)
 
-                    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-                    np.savez_compressed(
-                        output_path,
-                        chroma=chroma,
-                        frame_times=frame_times,
-                        chord_labels=chord_labels
-                    )
+                    X.extend(chroma)
+                    Y.extend(chord_labels)
+                    sources.extend(['wav'] * len(chord_labels))
+                    categories.extend([dir] * len(chord_labels))
+
+            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
+            X = np.array(X)
+            Y = np.array(Y)
+            sources = np.array(sources)
+            categories = np.array(categories)
+
+            np.savez_compressed(
+                output_path,
+                X=X,
+                Y=Y,
+                source=sources,
+                category=categories
+            )
 
         if dataset_name=='AAM': # Contains .mid and .arff files
-            preprocess_temp = os.path.join(processed_dir, f'_temp_{dataset_name}')
-            os.makedirs(preprocess_temp, exist_ok=True)
-            mid_files = sorted([f for f in os.listdir(src_dir) if f.endswith('.mid') and 'Drums' not in f])
-            arff_files = sorted([f for f in os.listdir(src_dir) if f.endswith('beatinfo.arff')])
+            try:
+                X = []
+                Y_chords = []
+                Y_notes = []
+                sources = []
+                categories = []
+                
+                preprocess_temp = os.path.join(BASE_DIR, f'_temp_{dataset_name}')
+                os.makedirs(preprocess_temp, exist_ok=True)
 
-            for arff_file in arff_files:
-                arff_file_path = os.path.join(src_dir, arff_file)
-                output_lab_path = os.path.join(preprocess_temp, arff_file.replace('.arff', '.lab'))
-                if os.path.exists(output_lab_path):
-                    logging.info(f'Skipping {arff_file} – already processed.')
-                    continue
-                convert_arff_to_lab(arff_file_path, output_lab_path)
-            logging.info(f'.lab files created.')
+                mid_files = sorted([f for f in os.listdir(src_dir) if f.endswith('.mid') and 'Drums' not in f])
+                arff_files = sorted([f for f in os.listdir(src_dir) if f.endswith('beatinfo.arff')])
 
-            for midi in tqdm(mid_files,
-                             desc=f'{dataset_name}',
-                             unit='file',
-                             ncols=80,
-                             bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed} @ {rate_fmt}]'):
-                midi_id = midi[:4]
-                midi_path = os.path.join(src_dir, midi)
-                npz_name = midi.replace('.mid', '.npz')
-                output_path = os.path.join(processed_dir, npz_name)
+                for arff_file in arff_files:
+                    arff_file_path = os.path.join(src_dir, arff_file)
+                    output_lab_path = os.path.join(preprocess_temp, arff_file.replace('.arff', '.lab'))
 
-                if os.path.exists(output_path):
-                    logging.info(f'Skipping {midi} – already processed.')
-                    continue
+                    if os.path.exists(output_lab_path):
+                        logging.info(f'Skipping {arff_file} – already processed.')
+                        continue
 
-                try:
-                    midi_data = PrettyMIDI(midi_path)
-                except KeySignatureError:
-                    logging.warning(f'Skipped - Invalid key signature in {midi_path}')
-                    continue  
+                    convert_arff_to_lab(arff_file_path, output_lab_path)
+                logging.info(f'.lab files created.')
 
-                lab_file = os.path.join(preprocess_temp, f'{midi_id}_beatinfo.lab')
-                lab_segments = load_lab_file(lab_file)
+                for midi in tqdm(mid_files,
+                                desc=f'{dataset_name}',
+                                unit='file',
+                                ncols=80,
+                                bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed} @ {rate_fmt}]'):
+                    midi_id = midi[:4] # 0000 format
+                    midi_path = os.path.join(src_dir, midi)
 
-                if not os.path.exists(lab_file):
-                    logging.warning(f'Missing .lab file for {midi_id}, skipping.')
-                    continue
+                    try:
+                        midi_data = PrettyMIDI(midi_path)
+                    except KeySignatureError:
+                        tqdm.write(f'[Warning] - Invalid key signature in {midi_path}, skipping.')
+                        continue  
+                    
+                    lab_file = os.path.join(preprocess_temp, f'{midi_id}_beatinfo.lab')
+                    lab_segments = load_lab_file(lab_file)
 
-                end_time = midi_data.get_end_time()
-                frame_times = np.arange(0, end_time, FRAME_DURATION)
+                    if not os.path.exists(lab_file):
+                        tqdm.write(f'[Warning] Missing .lab file for {midi_id}, skipping.')
+                        continue
 
-                # Manual note velocity extraction
-                chroma = np.zeros((len(frame_times), 12))
-                for note in midi_data.instruments[0].notes:
-                    start_idx = np.searchsorted(frame_times, note.start)
-                    end_idx = np.searchsorted(frame_times, note.end)
-                    pitch_class = note.pitch % 12
-                    velocity = note.velocity
+                    midi_name = midi[5:].replace('.mid','')
 
-                    chroma[start_idx:end_idx, pitch_class] += velocity
+                    end_time = midi_data.get_end_time()
+                    frame_times = np.arange(0, end_time, FRAME_DURATION)
 
-                chord_labels = align_labels_to_frames(frame_times, lab_segments)
+                    # Manual note velocity extraction
+                    chroma = np.zeros((len(frame_times), 12))
+                    for note in midi_data.instruments[0].notes:
+                        start_idx = np.searchsorted(frame_times, note.start)
+                        end_idx = np.searchsorted(frame_times, note.end)
+                        pitch_class = note.pitch % 12
+                        velocity = note.velocity
+
+                        chroma[start_idx:end_idx, pitch_class] += velocity
+
+                    chroma = normalize(chroma, norm='l1', axis=1)
+                    chord_labels = align_labels_to_frames(frame_times, lab_segments)
+
+                    # Getting notes present in the frame
+                    note_labels = np.zeros((len(frame_times), 128), dtype=np.float32)
+                    for note in midi_data.instruments[0].notes:
+                        start_idx = np.searchsorted(frame_times, note.start)
+                        end_idx = np.searchsorted(frame_times, note.end)
+                        note_labels[start_idx:end_idx, note.pitch] = 1.0
+
+                    X.extend(chroma)
+                    Y_chords.extend(chord_labels)
+                    Y_notes.extend(note_labels)
+                    sources.extend(['midi'] * len(chord_labels))
+                    categories.extend([midi_name] * len(chord_labels))
+
+                X = np.array(X)
+                Y_chords = np.array(Y_chords)
+                Y_notes = np.array(Y_notes)
+                sources = np.array(sources)
+                categories = np.array(categories)
 
                 np.savez_compressed(
                     output_path,
-                    chroma=chroma,
-                    frame_times=frame_times,
-                    chord_labels=chord_labels
+                    X=X,
+                    Y_chords=Y_chords,
+                    Y_notes=Y_notes,
+                    source=sources,
+                    category=categories
                 )
+
+            except KeyboardInterrupt:
+                logging.warning('Preprocess interrupted. Cleaning up...')
+                if os.path.exists(preprocess_temp):
+                    shutil.rmtree(preprocess_temp)
+                raise
+
             shutil.rmtree(preprocess_temp)
+    logging.info('Preprocessing finished.')
             
 def main():
     setup_logging()

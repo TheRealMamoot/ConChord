@@ -13,9 +13,6 @@ __pycache__/
 *.mid
 *.arff
 
-# Ignore all .npz files in processed and subfolders
-data/processed/**/*.npz
-
 # Ignore all datasets content but preserve directory structure with .gitkeep
 data/datasets/IDMT/*
 data/datasets/AAM/*
@@ -23,11 +20,5 @@ data/datasets/AAM/*
 !data/datasets/IDMT/non_guitar/.gitkeep
 !data/datasets/AAM/.gitkeep
 
-# Preserve processed folder structure
-!data/processed/.gitkeep
-!data/processed/IDMT/.gitkeep
-!data/processed/IDMT/guitar/.gitkeep
-!data/processed/IDMT/non_guitar/.gitkeep
-!data/processed/AAM/.gitkeep
-
+# tests
 tests.py
