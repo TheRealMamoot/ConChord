@@ -16,12 +16,17 @@ __pycache__/
 # Ignore all datasets content but preserve directory structure with .gitkeep
 data/datasets/IDMT/*
 data/datasets/AAM/*
+data/datasets/MAESTRO/*
 !data/datasets/IDMT/guitar/.gitkeep
 !data/datasets/IDMT/non_guitar/.gitkeep
 !data/datasets/AAM/.gitkeep
+!data/datasets/MAESTRO/2018/.gitkeep
+!data/datasets/MAESTRO/2017/.gitkeep
+
+# Temporary directories
 _temp_AAM/
 _temp_IDMT/
 
-# tests
+# Test files
 test.py
 tests.py

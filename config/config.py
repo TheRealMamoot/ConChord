@@ -13,7 +13,11 @@ DATASETS = {
     "AAM": {
       "url": ["https://zenodo.org/records/5794629/files/0001-1000-annotations-v1.1.0.zip?download=1",
               "https://zenodo.org/records/5794629/files/0001-1000-midis.zip?download=1"]
-      }
+      },
+    "MAESTRO": {
+      "url": ["https://storage.googleapis.com/magentadata/datasets/maestro/v3.0.0/maestro-v3.0.0-midi.zip"],
+      "subdirs": ["2018","2017"]
+    }
 }
 
 INSTRUMENTS = {

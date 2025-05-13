@@ -6,8 +6,8 @@ def get_downloader_parser():
         '--datasets',
         type=str,
         nargs='+',      
-        default=['IDMT','AAM'],
-        choices=['IDMT','AAM'],
+        default=['IDMT','AAM','MAESTRO'],
+        choices=['IDMT','AAM','MAESTRO'],
         help='List of dataset names to downlaod (e.g., IDMT)'
     )
     parser.add_argument(

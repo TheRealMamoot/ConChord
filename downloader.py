@@ -77,10 +77,7 @@ def download_and_extract(dataset_names: list[str] = ['IDMT', 'AMM'], chunk_size:
                             f'Corrupted zip for {dataset_name} part {i}. Please rerun the downloader.'
                         )
                     part_zip_path.unlink(missing_ok=True)
-                    # raise RuntimeError(
-                    #     f'The zip file for {dataset_name} was corrupted or incomplete. '
-                    #     f'Please rerun the downloader to fetch it again.'
-                    # )
+
                 logging.info(f'{dataset_name} download complete!')
 
             if final_dir.exists():
