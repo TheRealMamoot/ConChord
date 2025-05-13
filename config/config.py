@@ -1,3 +1,5 @@
+SEED = 42
+
 AUDIO_PARAMS = {
     "sample_rate": 11025,
     "hop_length": 512
@@ -12,4 +14,22 @@ DATASETS = {
       "url": ["https://zenodo.org/records/5794629/files/0001-1000-annotations-v1.1.0.zip?download=1",
               "https://zenodo.org/records/5794629/files/0001-1000-midis.zip?download=1"]
       }
+}
+
+INSTRUMENTS = {
+    "AAM": ['AcousticGuitar','AltoSax',
+            'Balalaika','BrightPiano',
+            'Cello','Clarinet',
+            'DoubleBassArco','DoubleBassPizz',
+            'ElectricBass','ElectricGuitarClean','ElectricGuitarCrunch','ElectricGuitarLead','ElectricPiano','Erhu',
+            'Flugelhorn','Flute','Fujara',
+            'Jinghu',
+            'MorinKhuur',
+            'OrganBass',
+            'PanFlute','Piano',
+            'Shakuhachi','Sitar',
+            'TenorSax','Trombone','Trumpet',
+            'Ukulele',
+            'Viola','Violin'
+            ]
 }

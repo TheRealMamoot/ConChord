@@ -117,6 +117,6 @@ def main():
     setup_logging()
     parser = get_downloader_parser()
     args = parser.parse_args()
-    download_and_extract(dataset_names=args.datasets, chunk_size=args.chunksize)
+    download_and_extract(dataset_names=args.datasets, chunk_size=args.chunk_size)
 if __name__ == '__main__':
     main()

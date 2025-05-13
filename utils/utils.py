@@ -1,7 +1,5 @@
 import os
 
-from pathlib import Path
-from pretty_midi import PrettyMIDI
 import numpy as np
 
 def load_lab_file(path: str) -> list[tuple[float, float, str]]:
