@@ -50,12 +50,14 @@ def download_and_extract(dataset_names: list[str] = ['IDMT', 'AMM'], chunk_size:
 
             if not zip_path.exists():
                 urls = dataset.get('url')
-                for url in urls:
+                for i, url in enumerate(urls):
+                    part_zip_path = BASE_DIR / f'{dataset_name}_part{i}.zip'
                     r = requests.get(url, stream=True)
                     total = int(r.headers.get('content-length', 0))
-                    with zip_path.open('wb') as f, tqdm(
+
+                    with part_zip_path.open('wb') as f, tqdm(
                         total=total,
-                        desc=f'{dataset_name}',
+                        desc=f'{dataset_name}_part{i+1}',
                         unit='B',
                         unit_scale=True,
                         ncols=80,
@@ -64,16 +66,21 @@ def download_and_extract(dataset_names: list[str] = ['IDMT', 'AMM'], chunk_size:
                         for chunk in r.iter_content(chunk_size=chunk_size * 1024):
                             f.write(chunk)
                             bar.update(len(chunk))
-                try:
-                    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                        zip_ref.extractall(extract_temp)
-                except zipfile.BadZipFile:
-                    logging.error(f'Corrupted zip file: {zip_path}. Deleting it...')
-                    zip_path.unlink(missing_ok=True)
-                    raise RuntimeError(
-                        f'The zip file for {dataset_name} was corrupted or incomplete. '
-                        f'Please rerun the downloader to fetch it again.'
-                    )
+
+                    try:
+                        with zipfile.ZipFile(part_zip_path, 'r') as zip_ref:
+                            zip_ref.extractall(extract_temp)
+                    except zipfile.BadZipFile:
+                        logging.error(f'Corrupted zip file: {part_zip_path}. Deleting it...')
+                        part_zip_path.unlink(missing_ok=True)
+                        raise RuntimeError(
+                            f'Corrupted zip for {dataset_name} part {i}. Please rerun the downloader.'
+                        )
+                    part_zip_path.unlink(missing_ok=True)
+                    # raise RuntimeError(
+                    #     f'The zip file for {dataset_name} was corrupted or incomplete. '
+                    #     f'Please rerun the downloader to fetch it again.'
+                    # )
                 logging.info(f'{dataset_name} download complete!')
 
             if final_dir.exists():
