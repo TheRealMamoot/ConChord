@@ -19,6 +19,9 @@ data/datasets/AAM/*
 !data/datasets/IDMT/guitar/.gitkeep
 !data/datasets/IDMT/non_guitar/.gitkeep
 !data/datasets/AAM/.gitkeep
+_temp_AAM/
+_temp_IDMT/
 
 # tests
+test.py
 tests.py

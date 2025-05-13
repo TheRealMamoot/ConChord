@@ -6,18 +6,18 @@ IDMT DATASET
 ------------------------------------------------------------------
 Each .npz file contains the following keys:
 
-- X          : A 2D array of shape (num_frames, 12)
-               Contains chroma features extracted from audio.
-               Each row is a normalized chroma vector for one frame.
+- X           : A 2D array of shape (num_frames, 12)
+                Contains chroma features extracted from audio.
+                Each row is a normalized chroma vector for one frame.
 
-- Y          : A 1D array of shape (num_frames,)
-               Contains chord labels aligned to each frame.
+- Y_chords     : A 1D array of shape (num_frames,)
+                Contains chord labels aligned to each frame.
 
-- source     : A 1D array of shape (num_frames,)
-               Each entry is the string 'wav' to indicate source type.
+- sources     : A 1D array of shape (num_frames,)
+                Each entry is the string 'wav' to indicate source type.
 
-- category   : A 1D array of shape (num_frames,)
-               Each entry is either 'guitar' or 'non_guitar' to indicate the instrument category.
+- categories  : A 1D array of shape (num_frames,)
+                Each entry is either 'guitar' or 'non_guitar' to indicate the instrument category.
 
 ------------------------------------------------------------------
 AAM DATASET
@@ -33,10 +33,10 @@ Each .npz file contains the following keys:
 - Y_notes     : A 2D binary array of shape (num_frames, 128)
                 Each row contains active MIDI note pitches (0–127) for the frame.
 
-- source      : A 1D array of shape (num_frames,)
+- sources     : A 1D array of shape (num_frames,)
                 Each entry is the string 'midi' to indicate source type.
 
-- category    : A 1D array of shape (num_frames,)
+- categories  : A 1D array of shape (num_frames,)
                 Each entry is the name of the instrument (e.g., 'AcousticGuitar', 'Ukulele', etc.)
 
 ------------------------------------------------------------------

@@ -1,5 +1,5 @@
 import logging
-import os
+from pathlib import Path
 
 from librosa.feature import chroma_cqt
 from librosa import load, frames_to_time
@@ -10,183 +10,304 @@ import shutil
 from sklearn.preprocessing import normalize
 from tqdm import tqdm
 
-from config.config import DATASETS, AUDIO_PARAMS
+from config.config import DATASETS, AUDIO_PARAMS, INSTRUMENTS, SEED
 from utils.logger import setup_logging
 from utils.parser import get_preprocess_parser
 from utils.utils import load_lab_file, align_labels_to_frames, convert_arff_to_lab
 
-BASE_DIR  = 'data/processed/'
+BASE_DIR = Path('data') / 'processed'
 FRAME_DURATION = AUDIO_PARAMS['hop_length'] / AUDIO_PARAMS['sample_rate']
 
-def preprocess(dataset_names: list[str]):
+########## preprocessing ##########
+def _process_idmt_dataset(dataset: dict, src_dir: Path, output_path: Path) -> None:
+    """
+    Processes the IDMT dataset by:
+    - Loading .wav audio files and corresponding .lab annotation files.
+    - Extracting chroma features using Constant-Q Transform (CQT).
+    - Aligning chroma frames with chord labels.
+    - Saving the resulting data (X, Y_chords, source, category) into a compressed .npz file.
+    """
+    X, Y_chords, sources, categories = [], [], [], []
+    sub_dirs = dataset.get('subdirs')
+    for dir in sub_dirs:
+        sub_dir: Path = src_dir / dir
+        wav_files = [f for f in sub_dir.iterdir() if f.suffix == '.wav']
+        annotations = sub_dir / f'{dir}_annotation.lab'
+        lab_segments = load_lab_file(annotations)
+
+        for wav_file in tqdm(wav_files, desc=f'{dir}', unit='file', ncols=80,
+                             bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed} @ {rate_fmt}]'):
+            audio, sr = load(wav_file, sr=AUDIO_PARAMS['sample_rate'])
+            chroma = chroma_cqt(y=audio, sr=sr, hop_length=AUDIO_PARAMS['hop_length']).T
+            frame_times = frames_to_time(range(chroma.shape[0]), sr=sr, hop_length=AUDIO_PARAMS['hop_length'])
+            chord_labels = align_labels_to_frames(frame_times, lab_segments)
+
+            X.extend(chroma)
+            Y_chords.extend(chord_labels)
+            sources.extend(['wav'] * len(chord_labels))
+            categories.extend([dir] * len(chord_labels))
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(output_path,
+                        X=np.array(X),
+                        Y_chords=np.array(Y_chords),
+                        sources=np.array(sources),
+                        categories=np.array(categories))
+
+def _generate_lab_files_from_arffs(arff_files: list[str], src_dir: Path, temp_dir: Path) -> None:
+    """
+    Converts all .arff files into .lab files and saves them into a temporary directory.
+    """
+    for arff_file in arff_files:
+        arff_path = src_dir / arff_file
+        lab_path: Path = temp_dir / arff_file.replace('.arff', '.lab')
+        if lab_path.exists():
+            logging.info(f'Skipping {arff_file} – already processed.')
+            continue
+        convert_arff_to_lab(arff_path, lab_path)
+
+def _process_aam_dataset(src_dir: Path, output_path: Path) -> None:
+    """
+    Processes the AAM dataset by:
+    - Converting .arff metadata files into .lab chord annotation files.
+    - Loading MIDI files and extracting chroma features from note velocities.
+    - Creating binary note presence matrices across 128 MIDI pitches.
+    - Aligning chroma frames with chord labels and saving the result
+      (X, Y_chords, Y_notes, sources, categories) into a .npz file.
+    """
+    X, Y_chords, Y_notes, sources, categories = [], [], [], [], []
+    temp_dir = BASE_DIR / '_temp_AAM'
+    temp_dir.mkdir(parents=True, exist_ok=True)
+
+    mid_files = sorted([f for f in src_dir.iterdir() if f.suffix == '.mid' and 'Drums' not in f.name and 'Demo' not in f.name])
+    arff_files = sorted([f.name for f in src_dir.iterdir() if f.name.endswith('beatinfo.arff')])
+    _generate_lab_files_from_arffs(arff_files, src_dir, temp_dir)
+    logging.info('.lab files created.')
+
+    for midi in tqdm(mid_files, desc='AAM', unit='file', ncols=80,
+                     bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed} @ {rate_fmt}]'):
+        midi_id = midi.name[:4]
+
+        try:
+            midi_data = PrettyMIDI(str(midi)) # turn Path objevt to path as a string
+        except KeySignatureError:
+            tqdm.write(f'[Warning] - Invalid key signature in {midi}, skipping.')
+            continue
+
+        lab_path = temp_dir / f'{midi_id}_beatinfo.lab'
+        if not lab_path.exists():
+            tqdm.write(f'[Warning] Missing .lab file for {midi_id}, skipping.')
+            continue
+
+        lab_segments = load_lab_file(lab_path)
+        midi_name = midi.name[5:].replace('.mid', '')
+        end_time = midi_data.get_end_time()
+        frame_times = np.arange(0, end_time, FRAME_DURATION)
+
+        chroma = np.zeros((len(frame_times), 12))
+        note_labels = np.zeros((len(frame_times), 128), dtype=np.float32)
+
+        for note in midi_data.instruments[0].notes:
+            start_idx = np.searchsorted(frame_times, note.start)
+            end_idx = np.searchsorted(frame_times, note.end)
+            pitch_class = note.pitch % 12
+            velocity = note.velocity
+            chroma[start_idx:end_idx, pitch_class] += velocity
+            note_labels[start_idx:end_idx, note.pitch] = 1.0
+
+        chroma = normalize(chroma, norm='l1', axis=1)
+        chord_labels = align_labels_to_frames(frame_times, lab_segments)
+
+        X.extend(chroma)
+        Y_chords.extend(chord_labels)
+        Y_notes.extend(note_labels)
+        sources.extend(['midi'] * len(chord_labels))
+        categories.extend([midi_name] * len(chord_labels))
+
+    shutil.rmtree(temp_dir)
+    np.savez_compressed(output_path,
+                        X=np.array(X),
+                        Y_chords=np.array(Y_chords),
+                        Y_notes=np.array(Y_notes),
+                        sources=np.array(sources),
+                        categories=np.array(categories))
+
+def preprocess(dataset_names: list[str] = ['IDMT','AAM']) -> None:
+    """
+    Main entry point for preprocessing datasets.
+    Iterates through the provided dataset names and triggers the appropriate
+    processing function depending on the dataset type.
+    Skips processing if the output .npz file already exists.
+    """
+    for name in dataset_names:
+        src = Path('data') / 'datasets' / name
+        out = BASE_DIR / f'{name}.npz'
+        if not src.exists():
+            logging.error(f'{src} not found!')
+            return
+        if out.exists():
+            logging.info(f'Skipping {name} – already processed.')
+            continue
+
+        logging.info(f'{name} preprocessing started.')
+        if name == 'IDMT':
+            _process_idmt_dataset(DATASETS[name], src, out)
+        elif name == 'AAM':
+            try:
+                _process_aam_dataset(src, out)
+            except KeyboardInterrupt:
+                logging.warning('Interrupted. Cleaning up...')
+                shutil.rmtree(BASE_DIR / '_temp_AAM', ignore_errors=True)
+                raise
+    logging.info('Preprocessing finished.')
+
+########## Trainable data prep ##########
+def _validate_ratios(dataset_split_ratio: float, IDMT_guitar_ratio: float) -> bool:
+    if not (0 <= dataset_split_ratio <= 1 and 0 <= IDMT_guitar_ratio <= 1):
+        logging.error('Process Incomplete - Ratios must be between 0 and 1.')
+        return False
+    return True
+
+def _validate_instruments(AAM_instruments: list[str]) -> bool:
+    target_instruments = set(AAM_instruments)
+    valid_instruments = set(INSTRUMENTS['AAM'])
+    invalid = list(target_instruments - valid_instruments)
+    if invalid:
+        logging.error(f'Process Incomplete - Invalid instrument(s) for AAM dataset: {invalid}')
+        return False
+    return True
+
+def _load_dataset(dataset_name: str) -> dict:
+    path = Path(BASE_DIR) / f'{dataset_name}.npz'
+    if not path.exists():
+        logging.error(f'{dataset_name} not found at {path}')
+        return {}
+    return dict(np.load(path, allow_pickle=True))
+
+def _save_npz(output_path: Path, **arrays):
+    np.savez_compressed(output_path, **arrays)
+    logging.info(f'Saved trainable/sliced dataset to {output_path}')
+
+def _prep_idmt_dataset(data: dict, IDMT_size: int, guitar_ratio: float, output_path: Path, use_max_size: bool = False) -> None:
+    """
+    Create a filtered trainable subset of the IDMT dataset or copy full dataset if use_max_size is True.
+    """
+    if use_max_size:
+        source_path = Path(BASE_DIR) / 'IDMT.npz'
+        shutil.copy(source_path, output_path)
+        logging.info(f'Copied full IDMT dataset to {output_path}')
+        return
+
+    X = data['X']
+    Y_chords = data['Y_chords']
+    categories = data['categories'].astype(str)
+    sources = data['sources'].astype(str)
+
+    guitar_mask = categories == 'guitar'
+    non_guitar_mask = categories == 'non_guitar'
+
+    guitar_size = int(IDMT_size * guitar_ratio)
+    nonguitar_size = IDMT_size - guitar_size
+
+    if guitar_size > np.sum(guitar_mask) or nonguitar_size > np.sum(non_guitar_mask):
+        raise ValueError(
+            f'Invalid ratios/samples: requested {guitar_size} guitar (max: {np.sum(guitar_mask)}), '
+            f'{nonguitar_size} non-guitar (max: {np.sum(non_guitar_mask)}).'
+        )
+
+    rng = np.random.default_rng(SEED)
+    guitar_indices = rng.choice(np.where(guitar_mask)[0], size=guitar_size, replace=False)
+    nonguitar_indices = rng.choice(np.where(non_guitar_mask)[0], size=nonguitar_size, replace=False)
+    selected_indices = np.concatenate([guitar_indices, nonguitar_indices])
+    rng.shuffle(selected_indices)
+
+    _save_npz(output_path,
+              X=X[selected_indices],
+              Y_chords=Y_chords[selected_indices],
+              sources=sources[selected_indices],
+              categories=categories[selected_indices])
+    
+def _prep_aam_dataset(data: dict, AAM_size: int, AAM_instruments: list[str], output_path: Path, use_max_size: bool = False) -> None:
+    """
+    Create a trainable subset of AAM with specified instruments.
+    Slices entire subsets of AAM for each instrument if use_max_size is True
+    """
+    X = data['X']
+    Y_chords = data['Y_chords']
+    Y_notes = data['Y_notes']
+    categories = data['categories'].astype(str)
+    sources = data['sources'].astype(str)
+
+    rng = np.random.default_rng(SEED)
+    selected_indices = []
+
+    for inst in AAM_instruments:
+        mask = categories == inst
+        indices = np.where(mask)[0]
+
+        if not use_max_size:
+            available = len(indices)
+            samples_per_instrument = AAM_size // len(AAM_instruments)
+            if samples_per_instrument > available:
+                raise ValueError(f'Requested {samples_per_instrument} samples for {inst}, but only {available} available.')
+            indices = rng.choice(indices, size=samples_per_instrument, replace=False)
+
+        selected_indices.extend(indices)
+
+    rng.shuffle(selected_indices)
+
+    _save_npz(output_path,
+              X=X[selected_indices],
+              Y_chords=Y_chords[selected_indices],
+              Y_notes=Y_notes[selected_indices],
+              sources=sources[selected_indices],
+              categories=categories[selected_indices])
+
+def prep_trainable_data(dataset_names: list[str] = ['IDMT', 'AAM'],
+                        filter_size: int = 200_000,
+                        use_max_size: bool = False,
+                        dataset_split_ratio: float = 0.5,
+                        IDMT_guitar_ratio: float = 0.5,
+                        AAM_instruments: list[str] = ['AcousticGuitar', 'Piano']):
+
+    (Path('data') / 'trainable').mkdir(parents=True, exist_ok=True)
+
+    if not _validate_ratios(dataset_split_ratio, IDMT_guitar_ratio):
+        return
+    if not _validate_instruments(AAM_instruments):
+        return
+
+    IDMT_size = int(np.floor(filter_size * dataset_split_ratio))
+    AAM_size = filter_size - IDMT_size
 
     for dataset_name in dataset_names:
-        dataset = DATASETS[dataset_name]
-        src_dir = f'data/datasets/{dataset_name}'
-        npz_name = f'{dataset_name}.npz'
-
-        if not os.path.exists(src_dir):
-            logging.error(f'{src_dir} directory does not exist!')
+        data = _load_dataset(dataset_name)
+        if not data:
             return
-        
-        output_path = os.path.join(BASE_DIR, npz_name)
-        if os.path.exists(output_path):
-            logging.info(f'Skipping {npz_name} – already processed at {output_path}')
-            continue
-        
-        logging.info(f'{dataset_name} preprocess initiated.')
 
-        if dataset_name=='IDMT': # Contains .wav and .lab files
-            X = []
-            Y = []
-            sources = []
-            categories = []
+        if dataset_name == 'IDMT':
+            output_path = Path('data') / 'trainable' / 'IDMT_trainable.npz'
+            _prep_idmt_dataset(data, IDMT_size, IDMT_guitar_ratio, output_path, use_max_size)
 
-            sub_dirs = dataset.get('subdirs')
-            for dir in sub_dirs:
-                sub_dir = os.path.join(src_dir, dir)
-                wav_files = [f for f in os.listdir(sub_dir) if f.endswith('.wav')]
-                annotations = os.path.join(sub_dir, f'{dir}_annotation.lab')
-                lab_segments = load_lab_file(annotations)
+        elif dataset_name == 'AAM':
+            output_path = Path('data') / 'trainable' / 'AAM_trainable.npz'
+            _prep_aam_dataset(data, AAM_size, AAM_instruments, output_path, use_max_size)
 
-                for wav_file in tqdm(wav_files,
-                                        desc=f'{dir}',
-                                        unit='file',
-                                        ncols=80,
-                                        bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed} @ {rate_fmt}]'):
+    logging.info('Trainable data preparation complete.')
 
-                    wav_file_path = os.path.join(sub_dir, wav_file)
-                    audio, sr = load(wav_file_path, sr=AUDIO_PARAMS.get('sample_rate'))
-                    chroma = chroma_cqt(y=audio, sr=sr, hop_length=AUDIO_PARAMS.get('hop_length')).T
-                    frame_times = frames_to_time(range(chroma.shape[0]), sr=sr, hop_length=AUDIO_PARAMS.get('hop_length'))
-                    chord_labels = align_labels_to_frames(frame_times, lab_segments)
-
-                    X.extend(chroma)
-                    Y.extend(chord_labels)
-                    sources.extend(['wav'] * len(chord_labels))
-                    categories.extend([dir] * len(chord_labels))
-
-            os.makedirs(os.path.dirname(output_path), exist_ok=True)
-
-            X = np.array(X)
-            Y = np.array(Y)
-            sources = np.array(sources)
-            categories = np.array(categories)
-
-            np.savez_compressed(
-                output_path,
-                X=X,
-                Y=Y,
-                source=sources,
-                category=categories
-            )
-
-        if dataset_name=='AAM': # Contains .mid and .arff files
-            try:
-                X = []
-                Y_chords = []
-                Y_notes = []
-                sources = []
-                categories = []
-                
-                preprocess_temp = os.path.join(BASE_DIR, f'_temp_{dataset_name}')
-                os.makedirs(preprocess_temp, exist_ok=True)
-
-                mid_files = sorted([f for f in os.listdir(src_dir) if f.endswith('.mid') and 'Drums' not in f])
-                arff_files = sorted([f for f in os.listdir(src_dir) if f.endswith('beatinfo.arff')])
-
-                for arff_file in arff_files:
-                    arff_file_path = os.path.join(src_dir, arff_file)
-                    output_lab_path = os.path.join(preprocess_temp, arff_file.replace('.arff', '.lab'))
-
-                    if os.path.exists(output_lab_path):
-                        logging.info(f'Skipping {arff_file} – already processed.')
-                        continue
-
-                    convert_arff_to_lab(arff_file_path, output_lab_path)
-                logging.info(f'.lab files created.')
-
-                for midi in tqdm(mid_files,
-                                desc=f'{dataset_name}',
-                                unit='file',
-                                ncols=80,
-                                bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed} @ {rate_fmt}]'):
-                    midi_id = midi[:4] # 0000 format
-                    midi_path = os.path.join(src_dir, midi)
-
-                    try:
-                        midi_data = PrettyMIDI(midi_path)
-                    except KeySignatureError:
-                        tqdm.write(f'[Warning] - Invalid key signature in {midi_path}, skipping.')
-                        continue  
-                    
-                    lab_file = os.path.join(preprocess_temp, f'{midi_id}_beatinfo.lab')
-                    lab_segments = load_lab_file(lab_file)
-
-                    if not os.path.exists(lab_file):
-                        tqdm.write(f'[Warning] Missing .lab file for {midi_id}, skipping.')
-                        continue
-
-                    midi_name = midi[5:].replace('.mid','')
-
-                    end_time = midi_data.get_end_time()
-                    frame_times = np.arange(0, end_time, FRAME_DURATION)
-
-                    # Manual note velocity extraction
-                    chroma = np.zeros((len(frame_times), 12))
-                    for note in midi_data.instruments[0].notes:
-                        start_idx = np.searchsorted(frame_times, note.start)
-                        end_idx = np.searchsorted(frame_times, note.end)
-                        pitch_class = note.pitch % 12
-                        velocity = note.velocity
-
-                        chroma[start_idx:end_idx, pitch_class] += velocity
-
-                    chroma = normalize(chroma, norm='l1', axis=1)
-                    chord_labels = align_labels_to_frames(frame_times, lab_segments)
-
-                    # Getting notes present in the frame
-                    note_labels = np.zeros((len(frame_times), 128), dtype=np.float32)
-                    for note in midi_data.instruments[0].notes:
-                        start_idx = np.searchsorted(frame_times, note.start)
-                        end_idx = np.searchsorted(frame_times, note.end)
-                        note_labels[start_idx:end_idx, note.pitch] = 1.0
-
-                    X.extend(chroma)
-                    Y_chords.extend(chord_labels)
-                    Y_notes.extend(note_labels)
-                    sources.extend(['midi'] * len(chord_labels))
-                    categories.extend([midi_name] * len(chord_labels))
-
-                X = np.array(X)
-                Y_chords = np.array(Y_chords)
-                Y_notes = np.array(Y_notes)
-                sources = np.array(sources)
-                categories = np.array(categories)
-
-                np.savez_compressed(
-                    output_path,
-                    X=X,
-                    Y_chords=Y_chords,
-                    Y_notes=Y_notes,
-                    source=sources,
-                    category=categories
-                )
-
-            except KeyboardInterrupt:
-                logging.warning('Preprocess interrupted. Cleaning up...')
-                if os.path.exists(preprocess_temp):
-                    shutil.rmtree(preprocess_temp)
-                raise
-
-            shutil.rmtree(preprocess_temp)
-    logging.info('Preprocessing finished.')
-            
 def main():
     setup_logging()
     parser = get_preprocess_parser()
     args = parser.parse_args()
     preprocess(dataset_names=args.datasets)
+    prep_trainable_data(
+        dataset_names=args.datasets,
+        filter_size=args.filter_size,
+        use_max_size=args.use_max_size,
+        dataset_split_ratio=args.dataset_split_ratio,
+        IDMT_guitar_ratio=args.IDMT_guitar_ratio,
+        AAM_instruments=args.AAM_instruments
+    )
 
 if __name__ == '__main__':
-    main()
+    main()    
