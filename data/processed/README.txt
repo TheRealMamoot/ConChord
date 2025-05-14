@@ -40,6 +40,23 @@ Each .npz file contains the following keys:
                 Each entry is the name of the instrument (e.g., 'AcousticGuitar', 'Ukulele', etc.)
 
 ------------------------------------------------------------------
+MAESTRO DATASET
+------------------------------------------------------------------
+Each .npz file contains the following keys:
+
+- X           : A 2D array of shape (num_frames, 12)
+                Contains chroma features extracted from MIDI using velocity-based encoding.
+
+- Y_notes     : A 2D binary array of shape (num_frames, 128)
+                Each row contains active MIDI note pitches (0–127) for the frame.
+
+- sources     : A 1D array of shape (num_frames,)
+                Each entry is the string 'midi' to indicate source type.
+
+- categories  : A 1D array of shape (num_frames,)
+                Each entry is the name of the instrument which is piano
+                
+------------------------------------------------------------------
 NOTES
 ------------------------------------------------------------------
 - All time alignment is based on fixed-length frames (e.g., hop_length/sample_rate).
