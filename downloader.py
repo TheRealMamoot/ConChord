@@ -10,20 +10,21 @@ from tqdm import tqdm
 from utils.logger import setup_logging
 from utils.parser import get_downloader_parser
 from utils.utils import folder_is_populated
-from config.config import DATASETS
+from config.config import Config
 
 BASE_DIR = Path('data') / 'datasets'
+config = Config()
 
-def download_and_extract(dataset_names: list[str] = ['IDMT', 'AMM'], chunk_size: int = 256):
+def download_and_extract(dataset_names: list[str], chunk_size: int):
+    
     BASE_DIR.mkdir(parents=True, exist_ok=True)
-
     try:
         for dataset_name in dataset_names:
-            if dataset_name not in DATASETS:
+            if dataset_name not in config.DATASETS:
                 logging.error(f'Dataset "{dataset_name}" not found in config.')
                 raise FileNotFoundError(f'Required dataset "{dataset_name}" not found.')
 
-            dataset = DATASETS[dataset_name]
+            dataset = config.DATASETS[dataset_name]
             zip_path = BASE_DIR / f'{dataset_name}.zip'
             extract_temp = BASE_DIR / f'_temp_{dataset_name}'
             final_dir = BASE_DIR / dataset_name
@@ -33,7 +34,7 @@ def download_and_extract(dataset_names: list[str] = ['IDMT', 'AMM'], chunk_size:
 
             if subdirs is not None:
                 for subdir in subdirs:
-                    full_path = final_dir / subdir
+                    full_path: Path = final_dir / subdir
                     if not full_path.exists() or not folder_is_populated(full_path):
                         skip = False
                         break
