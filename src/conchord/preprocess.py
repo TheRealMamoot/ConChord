@@ -15,7 +15,7 @@ from utils.logger import setup_logging
 from utils.parser import get_preprocess_parser
 from utils.utils import load_lab_file, align_labels_to_frames, convert_arff_to_lab
 
-BASE_DIR = Path('data') / 'processed'
+BASE_DIR = Path(__file__).resolve().parents[2] / 'data' / 'processed'
 config = Config()
 FRAME_DURATION = config.AUDIO_PARAMS['hop_length'] / config.AUDIO_PARAMS['sample_rate']
 
@@ -195,7 +195,7 @@ def preprocess(dataset_names: list[str]) -> None:
     Skips processing if the output .npz file already exists.
     """
     for name in dataset_names:
-        src = Path('data') / 'datasets' / name
+        src = Path(__file__).resolve().parents[2] / 'data' / 'datasets' / name 
         out = BASE_DIR / f'{name}.npz'
         if not src.exists():
             logging.error(f'{src} not found!')
@@ -344,7 +344,7 @@ def _filter_maestro_dataset(data: dict, MAESTRO_size: int, output_path: Path, us
     Create a filtered subset of MAESTRO or copy full dataset if use_max_size is True
     """
     if use_max_size:
-        source_path = Path(BASE_DIR) / 'MAESTRO.npz'
+        source_path = BASE_DIR / 'MAESTRO.npz'
         shutil.copy(source_path, output_path)
         logging.info(f'Copied full MAESTRO dataset to {output_path}')
         return
@@ -375,7 +375,7 @@ def filter_data(dataset_names: list[str],
                         use_max_size: bool = False,
                         use_all_aam_instruments: bool = False):
 
-    (Path('data') / 'filtered').mkdir(parents=True, exist_ok=True)
+    (Path(__file__).resolve().parents[2] / 'data' / 'filtered').mkdir(parents=True, exist_ok=True)
 
     dataset_split_ratios = {
         'IDMT_ratio':IDMT_ratio,
@@ -392,7 +392,7 @@ def filter_data(dataset_names: list[str],
     ]
 
     for dataset_name in dataset_names:
-        output_path = Path('data') / 'filtered' / f'{dataset_name}.npz'
+        output_path = Path(__file__).resolve().parents[2] / 'data' / 'filtered' / f'{dataset_name}.npz'
         data = _load_dataset(dataset_name)
         if not data:
             return
@@ -405,6 +405,50 @@ def filter_data(dataset_names: list[str],
             _filter_maestro_dataset(data, MAESTRO_size, output_path, use_max_size)
 
     logging.info('Data filtering/slicing complete.')
+
+########## stacking datasets, test-train splits ##########
+def stack_and_split_datasets(datasets: list[str] = ['IDMT','AAM','MAESTRO']) -> dict[str, tuple[np.ndarray, np.ndarray, np.ndarray]]:
+    datasets_dir = Path(__file__).resolve().parents[2] / 'data' / 'filtered'
+    all_X, all_Y_chords, all_Y_notes, all_sources = [], [], [], []
+
+    for dataset in datasets:
+        ds_path = datasets_dir / f'{dataset}.npz'
+        data = np.load(ds_path, allow_pickle=True)
+        X = data['X']
+        all_X.append(X)
+        all_sources.extend(data['sources'])
+
+        if 'Y_notes' in data:
+            all_Y_notes.append(data['Y_notes'])
+        else:
+            all_Y_notes.append(np.full((len(X), 128), np.nan))
+
+        if 'Y_chords' in data:
+            all_Y_chords.append(data['Y_chords'])
+        else:
+            all_Y_chords.append(np.full((len(X),), 'MISSING'))
+
+    X = np.vstack(all_X)
+    Y_notes = np.vstack(all_Y_notes)
+    Y_chords = np.array(all_Y_chords)
+    sources = np.array(all_sources)
+
+    chord_mask = Y_chords != 'MISSING'
+    note_mask = ~np.isnan(Y_notes).all(axis=1)
+
+    X_chords = X[chord_mask]
+    Y_chords_filtered = Y_chords[chord_mask]
+    sources_chords = sources[chord_mask]
+    X_notes = X[note_mask]
+    Y_notes_filtered = Y_notes[note_mask]
+    sources_notes = sources[note_mask]
+
+    splited_data = {
+        "chords": (X_chords, Y_chords_filtered, sources_chords),
+        "notes": (X_notes, Y_notes_filtered, sources_notes)
+    }
+
+    return splited_data
 
 def main():
     setup_logging()

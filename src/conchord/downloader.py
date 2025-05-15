@@ -12,7 +12,6 @@ from utils.parser import get_downloader_parser
 from utils.utils import folder_is_populated
 from config.config import Config
 
-# BASE_DIR = Path('data') / 'datasets'
 BASE_DIR = Path(__file__).resolve().parents[2] / 'data' / 'datasets'
 config = Config()
 
