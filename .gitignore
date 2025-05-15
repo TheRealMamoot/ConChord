@@ -23,10 +23,6 @@ data/datasets/MAESTRO/*
 !data/datasets/MAESTRO/2018/.gitkeep
 !data/datasets/MAESTRO/2017/.gitkeep
 
-# Temporary directories
-_temp_AAM/
-_temp_IDMT/
-
 # Test files
 test.py
 tests.py
