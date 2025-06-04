@@ -1,22 +1,22 @@
 import logging
 import os
-from pathlib import Path
 import shutil
 import zipfile
+from pathlib import Path
 
 import requests
 from tqdm import tqdm
 
-from utils.logger import setup_logging
-from utils.parser import get_downloader_parser
-from utils.utils import folder_is_populated
-from config.config import Config
+from src.conchord.config.config import Config
+from src.conchord.config.logger import setup_logger
+from src.conchord.utils.parser import get_downloader_parser
+from src.conchord.utils.utils import folder_is_populated
 
 BASE_DIR = Path(__file__).resolve().parents[2] / 'data' / 'datasets'
 config = Config()
 
+
 def download_and_extract(dataset_names: list[str], chunk_size: int):
-    
     BASE_DIR.mkdir(parents=True, exist_ok=True)
     try:
         for dataset_name in dataset_names:
@@ -56,14 +56,17 @@ def download_and_extract(dataset_names: list[str], chunk_size: int):
                     r = requests.get(url, stream=True)
                     total = int(r.headers.get('content-length', 0))
 
-                    with part_zip_path.open('wb') as f, tqdm(
-                        total=total,
-                        desc=f'{dataset_name}_part{i+1}',
-                        unit='B',
-                        unit_scale=True,
-                        ncols=80,
-                        bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} @ {rate_fmt}'
-                    ) as bar:
+                    with (
+                        part_zip_path.open('wb') as f,
+                        tqdm(
+                            total=total,
+                            desc=f'{dataset_name}_part{i + 1}',
+                            unit='B',
+                            unit_scale=True,
+                            ncols=80,
+                            bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} @ {rate_fmt}',
+                        ) as bar,
+                    ):
                         for chunk in r.iter_content(chunk_size=chunk_size * 1024):
                             f.write(chunk)
                             bar.update(len(chunk))
@@ -74,9 +77,7 @@ def download_and_extract(dataset_names: list[str], chunk_size: int):
                     except zipfile.BadZipFile:
                         logging.error(f'Corrupted zip file: {part_zip_path}. Deleting it...')
                         part_zip_path.unlink(missing_ok=True)
-                        raise RuntimeError(
-                            f'Corrupted zip for {dataset_name} part {i}. Please rerun the downloader.'
-                        )
+                        raise RuntimeError(f'Corrupted zip for {dataset_name} part {i}. Please rerun the downloader.')
                     part_zip_path.unlink(missing_ok=True)
 
                 logging.info(f'{dataset_name} download complete!')
@@ -118,10 +119,13 @@ def download_and_extract(dataset_names: list[str], chunk_size: int):
         zip_path.unlink(missing_ok=True)
         raise
 
+
 def main():
-    setup_logging()
+    setup_logger()
     parser = get_downloader_parser()
     args = parser.parse_args()
     download_and_extract(dataset_names=args.datasets, chunk_size=args.chunk_size)
+
+
 if __name__ == '__main__':
     main()

@@ -1,6 +1,7 @@
-import os
 from pathlib import Path
+
 import numpy as np
+
 
 def load_lab_file(path: Path) -> list[tuple[float, float, str]]:
     segments = []
@@ -10,6 +11,7 @@ def load_lab_file(path: Path) -> list[tuple[float, float, str]]:
             start, end, chord = parts
             segments.append((float(start), float(end), chord))
     return segments
+
 
 def align_labels_to_frames(frame_times: np.ndarray, lab_segments: list[tuple[float, float, str]]) -> list[str]:
     labels = []
@@ -21,6 +23,7 @@ def align_labels_to_frames(frame_times: np.ndarray, lab_segments: list[tuple[flo
                 break
         labels.append(matched_label)
     return labels
+
 
 def convert_arff_to_lab(arff_path: Path, output_path: Path):
     with arff_path.open('r') as f:
@@ -54,6 +57,7 @@ def convert_arff_to_lab(arff_path: Path, output_path: Path):
     with output_path.open('w') as out:
         for start, end, chord in lab_intervals:
             out.write(f'{start:.6f} {end:.6f} {chord}\n')
+
 
 def folder_is_populated(path: Path) -> bool:
     return any(p.name != '.gitkeep' for p in path.iterdir())
