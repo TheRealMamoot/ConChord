@@ -5,7 +5,7 @@ __pycache__/
 .env
 .venv
 *.log
-.DS_Store
+*.DS_Store
 
 # Audio and annotation data
 *.wav
