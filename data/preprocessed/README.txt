@@ -60,6 +60,5 @@ Each .npz file contains the following keys:
 NOTES
 ------------------------------------------------------------------
 - All time alignment is based on fixed-length frames (e.g., hop_length/sample_rate).
-- Files are compressed using numpy's savez_compressed.
 - The chroma vectors are normalized along the pitch axis using L1 norm.
 - The filtered directory contains the same data but filtered by user's inputs.

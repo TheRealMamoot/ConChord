@@ -73,8 +73,11 @@ class Config:
                 'idmt-ratio': 0.3334,
                 'aam-ratio': 0.3333,
                 'maestro-ratio': 0.3333,
-                'idmt-guitar-ratio': 0.5,
+                'idmt-guitar-ratio': 0.25,
                 'aam-instruments': ['AcousticGuitar', 'Piano'],
+                'train-ratio': 0.9,
+                'val-ratio': 0.05,
+                'test-ratio': 0.05,
             },
         }
     )

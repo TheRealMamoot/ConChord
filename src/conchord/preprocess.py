@@ -15,13 +15,14 @@ from src.conchord.config.logger import setup_logger
 from src.conchord.utils.parser import get_preprocess_parser
 from src.conchord.utils.utils import align_labels_to_frames, convert_arff_to_lab, load_lab_file
 
-BASE_DIR = Path(__file__).resolve().parents[2] / 'data' / 'processed'
+BASE_DIR = Path(__file__).resolve().parents[2] / 'data' / 'preprocessed'
 config = Config()
 FRAME_DURATION = config.AUDIO_PARAMS['hop_length'] / config.AUDIO_PARAMS['sample_rate']
 
-# =====================
-# === preprocessing ===
-# =====================
+
+# =================
+# === Utilities ===
+# =================
 
 
 def _generate_lab_files_from_arffs(arff_files: list[str], src_dir: Path, temp_dir: Path) -> None:
@@ -32,14 +33,53 @@ def _generate_lab_files_from_arffs(arff_files: list[str], src_dir: Path, temp_di
         arff_path = src_dir / arff_file
         lab_path: Path = temp_dir / arff_file.replace('.arff', '.lab')
         if lab_path.exists():
-            logging.info(f'Skipping {arff_file} – already processed.')
+            logging.info(f'Skipping {arff_file} – already preprocessed.')
             continue
         convert_arff_to_lab(arff_path, lab_path)
 
 
+def _validate_ratios(dataset_split_ratios: dict, IDMT_guitar_ratio: float | None = None) -> bool:
+    if IDMT_guitar_ratio is not None:
+        if not 0 <= IDMT_guitar_ratio <= 1:
+            logging.error('Process Incomplete - Guitar ratios must be between 0 and 1.')
+            return False
+
+    if not 0 < sum(dataset_split_ratios.values()) <= 1:
+        logging.error('Process Incomplete - Ratios total must be greater than 0 and cannot exceed 1.')
+        return False
+
+    for name, ratio in dataset_split_ratios.items():
+        if not 0 <= ratio <= 1:
+            logging.error(f'Process Incomplete - Invalid ratio for {name}:{ratio}.')
+    return True
+
+
+def _validate_instruments(AAM_instruments: list[str]) -> bool:
+    target_instruments = set(AAM_instruments)
+    valid_instruments = set(config.INSTRUMENTS['AAM'])
+    invalid = list(target_instruments - valid_instruments)
+    if invalid:
+        logging.error(f'Process Incomplete - Invalid instrument(s) for AAM dataset: {invalid}')
+        return False
+    return True
+
+
+def _load_dataset(dataset_name: str) -> dict:
+    path = Path(BASE_DIR) / f'{dataset_name}.npz'
+    if not path.exists():
+        logging.error(f'{dataset_name} not found at {path}')
+        return {}
+    return dict(np.load(path, allow_pickle=True))
+
+
 def save_npz(output_path: Path, **arrays):
     np.savez_compressed(output_path, **arrays)
-    logging.info(f'Saved filtered dataset to {output_path}')
+    logging.info(f'Saved subset to {output_path}')
+
+
+# =====================
+# === Preprocessing ===
+# =====================
 
 
 def _preprocess_idmt_dataset(dataset: dict, src_dir: Path, output_path: Path) -> None:
@@ -103,7 +143,7 @@ def _preprocess_aam_dataset(src_dir: Path, output_path: Path) -> None:
     )
     arff_files = sorted([f.name for f in src_dir.iterdir() if f.name.endswith('beatinfo.arff')])
     _generate_lab_files_from_arffs(arff_files, src_dir, temp_dir)
-    logging.info('.lab files created.')
+    logging.info('.lab files created')
 
     for midi in tqdm(
         mid_files,
@@ -117,12 +157,12 @@ def _preprocess_aam_dataset(src_dir: Path, output_path: Path) -> None:
         try:
             midi_data = PrettyMIDI(str(midi))  # turn Path object to path as a string
         except KeySignatureError:
-            tqdm.write(f'[Warning] - Invalid key signature in {midi}, skipping.')
+            tqdm.write(f'[Warning] - Invalid key signature in {midi}, skipping')
             continue
 
         lab_path = temp_dir / f'{midi_id}_beatinfo.lab'
         if not lab_path.exists():
-            tqdm.write(f'[Warning] Missing .lab file for {midi_id}, skipping.')
+            tqdm.write(f'[Warning] Missing .lab file for {midi_id}, skipping')
             continue
 
         lab_segments = load_lab_file(lab_path)
@@ -186,7 +226,7 @@ def _preprocess_maestro_dataset(dataset: dict, src_dir: Path, output_path: Path)
             try:
                 midi_data = PrettyMIDI(str(midi))  # turn Path object to path as a string
             except KeySignatureError:
-                tqdm.write(f'[Warning] - Invalid key signature in {midi}, skipping.')
+                tqdm.write(f'[Warning] - Invalid key signature in {midi}, skipping')
                 continue
 
             end_time = midi_data.get_end_time()
@@ -219,7 +259,7 @@ def _preprocess_maestro_dataset(dataset: dict, src_dir: Path, output_path: Path)
     )
 
 
-def preprocess(dataset_names: list[str]) -> None:
+def preprocess_data(dataset_names: list[str]) -> None:
     """
     Main entry point for preprocessing datasets.
     Iterates through the provided dataset names and triggers the appropriate
@@ -233,10 +273,10 @@ def preprocess(dataset_names: list[str]) -> None:
             logging.error(f'{src} not found!')
             return
         if out.exists():
-            logging.info(f'Skipping {name} – already processed.')
+            logging.info(f'Skipping {name} – already preprocessed.')
             continue
 
-        logging.info(f'{name} preprocessing started.')
+        logging.info(f'{name} preprocessing started')
         if name == 'IDMT':
             _preprocess_idmt_dataset(config.DATASETS[name], src, out)
         elif name == 'AAM':
@@ -253,41 +293,8 @@ def preprocess(dataset_names: list[str]) -> None:
 
 
 # ===========================
-# === filtering data prep ===
+# === Filtering data prep ===
 # ===========================
-
-
-def _validate_ratios(dataset_split_ratios: dict, IDMT_guitar_ratio: float) -> bool:
-    if not 0 <= IDMT_guitar_ratio <= 1:
-        logging.error('Process Incomplete - Guitar ratios must be between 0 and 1.')
-        return False
-
-    if not 0 < sum(dataset_split_ratios.values()) <= 1:
-        logging.error('Process Incomplete - Ratios total must be greater than 0 and cannot exceed 1.')
-        return False
-
-    for name, ratio in dataset_split_ratios.items():
-        if not 0 <= ratio <= 1:
-            logging.error(f'Process Incomplete - Invalid ratio for {name}:{ratio}.')
-    return True
-
-
-def _validate_instruments(AAM_instruments: list[str]) -> bool:
-    target_instruments = set(AAM_instruments)
-    valid_instruments = set(config.INSTRUMENTS['AAM'])
-    invalid = list(target_instruments - valid_instruments)
-    if invalid:
-        logging.error(f'Process Incomplete - Invalid instrument(s) for AAM dataset: {invalid}')
-        return False
-    return True
-
-
-def _load_dataset(dataset_name: str) -> dict:
-    path = Path(BASE_DIR) / f'{dataset_name}.npz'
-    if not path.exists():
-        logging.error(f'{dataset_name} not found at {path}')
-        return {}
-    return dict(np.load(path, allow_pickle=True))
 
 
 def _filter_idmt_dataset(
@@ -312,13 +319,13 @@ def _filter_idmt_dataset(
 
     guitar_size = int(IDMT_size * guitar_ratio)
     nonguitar_size = IDMT_size - guitar_size
-
     if guitar_size > np.sum(guitar_mask) or nonguitar_size > np.sum(non_guitar_mask):
         raise ValueError(
             f'Invalid ratios/samples: requested {guitar_size} guitar (max: {np.sum(guitar_mask)}), '
             f'{nonguitar_size} non-guitar (max: {np.sum(non_guitar_mask)}).'
         )
 
+    logging.info(f'Filtering IDMT dataset: {guitar_size:,} guitar samples | {nonguitar_size:,} non-guitar samples')
     rng = np.random.default_rng(config.SEED)
     guitar_indices = rng.choice(np.where(guitar_mask)[0], size=guitar_size, replace=False)
     nonguitar_indices = rng.choice(np.where(non_guitar_mask)[0], size=nonguitar_size, replace=False)
@@ -453,18 +460,21 @@ def filter_data(
             _filter_aam_dataset(data, AAM_size, AAM_instruments, output_path, use_max_size, use_all_aam_instruments)
         elif dataset_name == 'MAESTRO':
             _filter_maestro_dataset(data, MAESTRO_size, output_path, use_max_size)
-
+    logging.info(f'IDMT_size: {IDMT_size:,} | AAM_size: {AAM_size:,} | MAESTRO_size: {MAESTRO_size:,}')
     logging.info('Data filtering/slicing complete.')
 
 
-# ============================================
+# ================================================
 # === Stacking Datasets, Test-Train Splits ===
-# ============================================
+# ================================================
 
 
-def stack_and_split_datasets(
+def stack_datasets(
     datasets: list[str] = ['IDMT', 'AAM', 'MAESTRO'],
-) -> dict[str, tuple[np.ndarray, np.ndarray, np.ndarray]]:
+) -> dict[str, dict[str, np.ndarray]]:
+    """
+    Loads and stacks previously filtered datasets.
+    """
     datasets_dir = Path(__file__).resolve().parents[2] / 'data' / 'filtered'
     all_X, all_Y_chords, all_Y_notes, all_sources = [], [], [], []
 
@@ -487,9 +497,10 @@ def stack_and_split_datasets(
 
     X = np.vstack(all_X)
     Y_notes = np.vstack(all_Y_notes)
-    Y_chords = np.array(all_Y_chords)
+    Y_chords = np.concatenate(all_Y_chords, axis=0)
     sources = np.array(all_sources)
 
+    # Filter out samples with missing chord labels or all NaN notes
     chord_mask = Y_chords != 'MISSING'
     note_mask = ~np.isnan(Y_notes).all(axis=1)
 
@@ -500,19 +511,85 @@ def stack_and_split_datasets(
     Y_notes_filtered = Y_notes[note_mask]
     sources_notes = sources[note_mask]
 
-    splited_data = {
-        'chords': (X_chords, Y_chords_filtered, sources_chords),
-        'notes': (X_notes, Y_notes_filtered, sources_notes),
+    splitted_data = {
+        'chords': {
+            'X': X_chords,
+            'Y': Y_chords_filtered,
+            'sources': sources_chords,
+        },
+        'notes': {
+            'X': X_notes,
+            'Y': Y_notes_filtered,
+            'sources': sources_notes,
+        },
     }
+    return splitted_data
 
-    return splited_data
+
+def split_data(
+    label_type: str, data: dict, train_ratio: float = 0.9, val_ratio: float = 0.05, test_ratio: float = 0.05
+):
+    """
+    Splits the previously stacked datasets into test, train and validation sets.
+    """
+    split_map_ratios = {
+        'train': train_ratio,
+        'val': val_ratio,
+        'test': test_ratio,
+    }
+    if not _validate_ratios(split_map_ratios):
+        return
+
+    output_path = Path(__file__).resolve().parents[2] / 'data' / 'splitted'
+    output_path.mkdir(parents=True, exist_ok=True)
+
+    X = data[label_type]['X']
+    Y = data[label_type]['Y']
+    sources = data[label_type]['sources']
+
+    indices = np.arange(len(X))
+    np.random.default_rng(config.SEED).shuffle(indices)
+
+    train_end = int(train_ratio * len(indices))
+    val_end = train_end + int(val_ratio * len(indices))
+    test_end = val_end + int(test_ratio * len(indices))
+
+    train_indices = indices[:train_end]
+    val_indices = indices[train_end:val_end]
+    test_indices = indices[val_end:test_end]
+
+    indices_lenghts = []
+    for name in split_map_ratios.keys():
+        output_file = output_path / f'{label_type}_{name}.npz'
+        if name == 'train':
+            selected_indices = train_indices
+        elif name == 'val':
+            selected_indices = val_indices
+        elif name == 'test':
+            selected_indices = test_indices
+
+        save_npz(
+            output_file,
+            X=X[selected_indices],
+            Y=Y[selected_indices],
+            sources=sources[selected_indices],
+        )
+        indices_lenghts.append(len(selected_indices))
+    logging.info(
+        f'{label_type.upper()} -- train_size: {indices_lenghts[0]:,} | val_size: {indices_lenghts[1]:,} | test_size: {indices_lenghts[2]:,}'
+    )
+
+
+# =====================
+# === Main function ===
+# =====================
 
 
 def main():
     setup_logger()
     parser = get_preprocess_parser()
     args = parser.parse_args()
-    preprocess(dataset_names=args.datasets)
+    preprocess_data(dataset_names=args.datasets)
     filter_data(
         dataset_names=args.datasets,
         filter_size=args.filter_size,
@@ -524,6 +601,15 @@ def main():
         IDMT_guitar_ratio=args.idmt_guitar_ratio,
         AAM_instruments=args.aam_instruments,
     )
+    data = stack_datasets(datasets=args.datasets)
+    for type in ['notes', 'chords']:
+        split_data(
+            label_type=type,
+            data=data,
+            train_ratio=args.train_ratio,
+            val_ratio=args.val_ratio,
+            test_ratio=args.test_ratio,
+        )
 
 
 if __name__ == '__main__':

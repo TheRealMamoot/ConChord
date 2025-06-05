@@ -42,6 +42,7 @@ def get_preprocess_parser():
         help='Total number of frames to sample (default: 200,000)',
     )
     parser.add_argument('--use-max-size', action='store_true', help='Use the full available dataset without filtering')
+
     parser.add_argument(
         '--use-all-aam-instruments', action='store_true', help='Use all available instruments in AAM dataset'
     )
@@ -74,5 +75,23 @@ def get_preprocess_parser():
         nargs='+',
         default=defaults['preprocess']['aam-instruments'],
         help='List of instruments to include from AAM',
+    )
+    parser.add_argument(
+        '--train-ratio',
+        type=float,
+        default=defaults['preprocess']['train-ratio'],
+        help='train set ratio (e.g. 0.8 = 80%)',
+    )
+    parser.add_argument(
+        '--val-ratio',
+        type=float,
+        default=defaults['preprocess']['val-ratio'],
+        help='validation set ratio (e.g. 0.1 = 10%)',
+    )
+    parser.add_argument(
+        '--test-ratio',
+        type=float,
+        default=defaults['preprocess']['test-ratio'],
+        help='test set ratio (e.g. 0.1 = 10%)',
     )
     return parser
