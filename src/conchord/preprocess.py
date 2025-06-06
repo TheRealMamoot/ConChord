@@ -155,7 +155,7 @@ def _preprocess_aam_dataset(src_dir: Path, output_path: Path) -> None:
         midi_id = midi.name[:4]
 
         try:
-            midi_data = PrettyMIDI(str(midi))  # turn Path object to path as a string
+            midi_data = PrettyMIDI(str(midi))  # turn Path object to path as a string``
         except KeySignatureError:
             tqdm.write(f'[Warning] - Invalid key signature in {midi}, skipping')
             continue
@@ -464,9 +464,9 @@ def filter_data(
     logging.info('Data filtering/slicing complete.')
 
 
-# ================================================
+# ============================================
 # === Stacking Datasets, Test-Train Splits ===
-# ================================================
+# ============================================
 
 
 def stack_datasets(
@@ -576,7 +576,7 @@ def split_data(
         )
         indices_lenghts.append(len(selected_indices))
     logging.info(
-        f'{label_type.upper()} -- train_size: {indices_lenghts[0]:,} | val_size: {indices_lenghts[1]:,} | test_size: {indices_lenghts[2]:,}'
+        f'{label_type.upper()} -- train_size: {indices_lenghts[0]:,} | val_size: {indices_lenghts[1]:,} | test_size: {indices_lenghts[2]:,} -- Total: {len(X):,}'
     )
 
 
