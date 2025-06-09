@@ -31,3 +31,7 @@ data/splitted/
 # Test files
 test.py
 tests.py
+
+# vscode
+.vscode
+theme.css
