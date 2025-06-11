@@ -23,10 +23,12 @@ data/datasets/MAESTRO/*
 !data/datasets/MAESTRO/2018/.gitkeep
 !data/datasets/MAESTRO/2017/.gitkeep
 
-# Ignore all processed data content from now on. Data already processed.
-data/preprocessed/
-data/filtered/
-data/splitted/
+# Ignore contents of these folders, but keep structure
+data/preprocessed/*
+!data/preprocessed/.gitkeep
+
+data/filtered/*
+!data/filtered/.gitkeep
 
 # Test files
 test.py
