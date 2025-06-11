@@ -3,7 +3,7 @@ name = "conchord"
 version = "0.1.0"
 description = "A real-time deep learning system for detecting and identifying musical chords and their constituent notes from audio input, using convolutional neural networks and chroma-based audio features."
 readme = "README.md"
-requires-python = ">=3.11.8"
+requires-python = ">=3.11.8,<3.12"
 
 [tool.ruff]
 line-length = 120
