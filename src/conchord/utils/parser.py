@@ -39,6 +39,20 @@ def get_preprocess_parser():
         help='List of dataset names to preprocess (e.g., IDMT)',
     )
     parser.add_argument(
+        '-s',
+        '--sample-rate',
+        type=int,
+        default=config.AUDIO_PARAMS['sample_rate'],
+        help='Sampling rate to which the audio should be resampled.',
+    )
+    parser.add_argument(
+        '-hr',
+        '--hop-length',
+        type=int,
+        default=config.AUDIO_PARAMS['hop_length'],
+        help='Number of audio samples between each chroma frame. Controls temporal resolution.',
+    )
+    parser.add_argument(
         '-f',
         '--filter-size',
         type=int,

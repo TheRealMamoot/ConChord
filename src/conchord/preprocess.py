@@ -15,9 +15,11 @@ from src.conchord.config.logger import setup_logger
 from src.conchord.utils.parser import get_preprocess_parser
 from src.conchord.utils.utils import align_labels_to_frames, convert_arff_to_lab, load_lab_file
 
-BASE_DIR = Path(__file__).resolve().parents[2] / 'data' / 'preprocessed'
 config = Config()
+BASE_DIR = Path(__file__).resolve().parents[2] / 'data' / 'preprocessed'
 FRAME_DURATION = config.AUDIO_PARAMS['hop_length'] / config.AUDIO_PARAMS['sample_rate']
+SEQUENCE_DURATION = 1  # second
+SEQUENCE_LENGTH = int(np.ceil(SEQUENCE_DURATION / FRAME_DURATION))  # 22 frames per second
 
 
 # =================
@@ -27,7 +29,7 @@ FRAME_DURATION = config.AUDIO_PARAMS['hop_length'] / config.AUDIO_PARAMS['sample
 
 def _generate_lab_files_from_arffs(arff_files: list[str], src_dir: Path, temp_dir: Path) -> None:
     """
-    Converts all .arff files into .lab files and saves them into a temporary directory.
+    Convert all .arff files into .lab files and save them into a temporary directory.
     """
     for arff_file in arff_files:
         arff_path = src_dir / arff_file
@@ -72,9 +74,22 @@ def _load_dataset(dataset_name: str) -> dict:
     return dict(np.load(path, allow_pickle=True))
 
 
-def save_npz(output_path: Path, **arrays):
+def save_npz(output_path: Path, **arrays) -> None:
     np.savez_compressed(output_path, **arrays)
     logging.info(f'Saved subset to {output_path}')
+
+
+def trim_to_sequence_length(*arrays, seq_len: int) -> tuple[np.ndarray, ...]:
+    """
+    Trims all input arrays so their length becomes a multiple of seq_len.
+    Returns the trimmed arrays in the same order.
+    """
+    trimmed = []
+    for arr in arrays:
+        num_sequences = len(np.array(arr)) // seq_len
+        cut_off = num_sequences * seq_len
+        trimmed.append(arr[:cut_off])
+    return tuple(trimmed)
 
 
 # =====================
@@ -82,16 +97,23 @@ def save_npz(output_path: Path, **arrays):
 # =====================
 
 
-def _preprocess_idmt_dataset(dataset: dict, src_dir: Path, output_path: Path) -> None:
+def _preprocess_idmt_dataset(
+    dataset: dict, src_dir: Path, output_path: Path, hop_len: int, sample_rate: int, seq_len: int = SEQUENCE_LENGTH
+) -> None:
     """
     Processes the IDMT dataset by:
-    - Loading .wav audio files and corresponding .lab annotation files.
-    - Extracting chroma features using Constant-Q Transform (CQT).
-    - Aligning chroma frames with chord labels.
-    - Saving the resulting data (X, Y_chords, source, category) into a compressed .npz file.
+    - Loads .wav audio files and corresponding .lab annotation files.
+    - Extracts chroma features using Constant-Q Transform (CQT).
+    - Aligns chroma frames with chord labels.
+    - Reshapes frames into sequences.
+    - Saves the resulting data (X, Y_chords, source, category) into a compressed .npz file.
+    Args:
+        hop_len: Number of audio samples between each chroma frame. Controls temporal resolution.
+        sample_rate (Hz): Sampling rate to which the audio should be resampled.
+        seq_len: Number of chroma frames per sequence. Defines the temporal length of each training sample.
     """
     X, Y_chords, sources, categories = [], [], [], []
-    sub_dirs = dataset.get('subdirs')
+    sub_dirs: list = dataset['subdirs']
     for dir in sub_dirs:
         sub_dir: Path = src_dir / dir
         wav_files = [f for f in sub_dir.iterdir() if f.suffix == '.wav']
@@ -105,10 +127,17 @@ def _preprocess_idmt_dataset(dataset: dict, src_dir: Path, output_path: Path) ->
             ncols=80,
             bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed} @ {rate_fmt}]',
         ):
-            audio, sr = load(wav_file, sr=config.AUDIO_PARAMS['sample_rate'])
-            chroma = chroma_cqt(y=audio, sr=sr, hop_length=config.AUDIO_PARAMS['hop_length']).T
-            frame_times = frames_to_time(range(chroma.shape[0]), sr=sr, hop_length=config.AUDIO_PARAMS['hop_length'])
+            audio, sr = load(wav_file, sr=sample_rate)
+            chroma = chroma_cqt(y=audio, sr=sr, hop_length=hop_len).T
+            frame_times = frames_to_time(range(chroma.shape[0]), sr=sr, hop_length=hop_len)
             chord_labels = align_labels_to_frames(frame_times, lab_segments)
+
+            num_sequences = len(chroma) // seq_len
+            chroma, chord_labels = trim_to_sequence_length(chroma, chord_labels, seq_len=seq_len)
+
+            # Reshape into sequences
+            chroma = chroma.reshape(num_sequences, seq_len, chroma.shape[1])
+            chord_labels = np.array(chord_labels).reshape(num_sequences, seq_len)
 
             X.extend(chroma)
             Y_chords.extend(chord_labels)
@@ -125,14 +154,15 @@ def _preprocess_idmt_dataset(dataset: dict, src_dir: Path, output_path: Path) ->
     )
 
 
-def _preprocess_aam_dataset(src_dir: Path, output_path: Path) -> None:
+def _preprocess_aam_dataset(src_dir: Path, output_path: Path, seq_len: int = SEQUENCE_LENGTH) -> None:
     """
     Processes the AAM dataset by:
-    - Converting .arff metadata files into .lab chord annotation files.
-    - Loading MIDI files and extracting chroma features from note velocities.
-    - Creating binary note presence matrices across 128 MIDI pitches.
-    - Aligning chroma frames with chord labels and saving the result
-      (X, Y_chords, Y_notes, sources, categories) into a .npz file.
+    - Converts .arff metadata files into .lab chord annotation files.
+    - Loads MIDI files and extracting chroma features from note velocities.
+    - Creates binary note presence matrices across 128 MIDI pitches.
+    - Aligns chroma frames with chord labels.
+    - Reshapes frames into sequences.
+    - Saves the result (X, Y_chords, Y_notes, sources, categories) into a .npz file.
     """
     X, Y_chords, Y_notes, sources, categories = [], [], [], [], []
     temp_dir = BASE_DIR / '_temp_AAM'
@@ -184,6 +214,13 @@ def _preprocess_aam_dataset(src_dir: Path, output_path: Path) -> None:
         chroma = normalize(chroma, norm='l1', axis=1)
         chord_labels = align_labels_to_frames(frame_times, lab_segments)
 
+        num_sequences = len(chroma) // seq_len
+        chroma, chord_labels, note_labels = trim_to_sequence_length(chroma, chord_labels, note_labels, seq_len=seq_len)
+
+        chroma = chroma.reshape(num_sequences, seq_len, chroma.shape[1])
+        chord_labels = np.array(chord_labels).reshape(num_sequences, seq_len)
+        note_labels = np.array(note_labels).reshape(num_sequences, seq_len, 128)
+
         X.extend(chroma)
         Y_chords.extend(chord_labels)
         Y_notes.extend(note_labels)
@@ -202,15 +239,18 @@ def _preprocess_aam_dataset(src_dir: Path, output_path: Path) -> None:
     )
 
 
-def _preprocess_maestro_dataset(dataset: dict, src_dir: Path, output_path: Path) -> None:
+def _preprocess_maestro_dataset(
+    dataset: dict, src_dir: Path, output_path: Path, seq_len: int = SEQUENCE_LENGTH
+) -> None:
     """
     Processes the MAESTRO dataset by:
-    - Loading MIDI files and extracting chroma features from note velocities.
-    - Creating binary note presence matrices across 128 MIDI pitches and saving the result
-      (X, Y_notes, sources, categories) into a .npz file.
+    - Loads MIDI files and extracting chroma features from note velocities.
+    - Creates binary note presence matrices across 128 MIDI pitches.
+    - Reshapes frames into sequences.
+    - Saves the result (X, Y_notes, sources, categories) into a .npz file.
     """
     X, Y_notes, sources, categories = [], [], [], []
-    sub_dirs = dataset.get('subdirs')
+    sub_dirs: list[str] = dataset['subdirs']
 
     for dir in sub_dirs:
         sub_dir: Path = src_dir / dir
@@ -244,6 +284,12 @@ def _preprocess_maestro_dataset(dataset: dict, src_dir: Path, output_path: Path)
 
             chroma = normalize(chroma, norm='l1', axis=1)
 
+            chroma, note_labels = trim_to_sequence_length(chroma, note_labels, seq_len=seq_len)
+            num_sequences = len(chroma) // seq_len
+
+            chroma = chroma.reshape(num_sequences, seq_len, chroma.shape[1])
+            note_labels = np.array(note_labels).reshape(num_sequences, seq_len, 128)
+
             X.extend(chroma)
             Y_notes.extend(note_labels)
             sources.extend(['midi'] * len(note_labels))
@@ -259,11 +305,11 @@ def _preprocess_maestro_dataset(dataset: dict, src_dir: Path, output_path: Path)
     )
 
 
-def preprocess_data(dataset_names: list[str]) -> None:
+def preprocess_data(dataset_names: list[str], idmt_hop_len: int, idmt_sr: int) -> None:
     """
     Main entry point for preprocessing datasets.
     Iterates through the provided dataset names and triggers the appropriate
-    processing function depending on the dataset type.
+    processes function depending on the dataset type.
     Skips processing if the output .npz file already exists.
     """
     for name in dataset_names:
@@ -278,7 +324,7 @@ def preprocess_data(dataset_names: list[str]) -> None:
 
         logging.info(f'{name} preprocessing started')
         if name == 'IDMT':
-            _preprocess_idmt_dataset(config.DATASETS[name], src, out)
+            _preprocess_idmt_dataset(config.DATASETS[name], src, out, hop_len=idmt_hop_len, sample_rate=idmt_sr)
         elif name == 'AAM':
             try:
                 _preprocess_aam_dataset(src, out)
@@ -298,10 +344,14 @@ def preprocess_data(dataset_names: list[str]) -> None:
 
 
 def _filter_idmt_dataset(
-    data: dict, IDMT_size: int, guitar_ratio: float, output_path: Path, use_max_size: bool = False
+    data: dict,
+    IDMT_size: int,
+    guitar_ratio: float,
+    output_path: Path,
+    use_max_size: bool = False,
 ) -> None:
     """
-    Create a filtered subset of the IDMT dataset or copy full dataset if use_max_size is True.
+    - Creates a filtered subset of the IDMT dataset or copy full dataset if use_max_size is True.
     """
     if use_max_size:
         source_path = Path(BASE_DIR) / 'IDMT.npz'
@@ -350,7 +400,7 @@ def _filter_aam_dataset(
     use_all_aam_instruments: bool = False,
 ) -> None:
     """
-    Create a filtered subset of AAM with specified instruments.
+    Creates a filtered subset of AAM with specified instruments.
     Slices entire subsets of AAM for each instrument if use_max_size is True
     """
     X = data['X']
@@ -400,7 +450,7 @@ def _filter_aam_dataset(
 
 def _filter_maestro_dataset(data: dict, MAESTRO_size: int, output_path: Path, use_max_size: bool = False) -> None:
     """
-    Create a filtered subset of MAESTRO or copy full dataset if use_max_size is True
+    Creates a filtered subset of MAESTRO or copy full dataset if use_max_size is True
     """
     if use_max_size:
         source_path = BASE_DIR / 'MAESTRO.npz'
@@ -488,12 +538,12 @@ def stack_datasets(
         if 'Y_notes' in data:
             all_Y_notes.append(data['Y_notes'])
         else:
-            all_Y_notes.append(np.full((len(X), 128), np.nan))
+            all_Y_notes.append(np.full((len(X), SEQUENCE_LENGTH, 128), np.nan))
 
         if 'Y_chords' in data:
             all_Y_chords.append(data['Y_chords'])
         else:
-            all_Y_chords.append(np.full((len(X),), 'MISSING'))
+            all_Y_chords.append(np.full((len(X), SEQUENCE_LENGTH), 'MISSING'))
 
     X = np.vstack(all_X)
     Y_notes = np.vstack(all_Y_notes)
@@ -501,8 +551,8 @@ def stack_datasets(
     sources = np.array(all_sources)
 
     # Filter out samples with missing chord labels or all NaN notes
-    chord_mask = Y_chords != 'MISSING'
-    note_mask = ~np.isnan(Y_notes).all(axis=1)
+    chord_mask = Y_chords[:, 0] != 'MISSING' # Only the first frame suffices
+    note_mask = ~np.isnan(Y_notes[:, 0, 0])
 
     X_chords = X[chord_mask]
     Y_chords_filtered = Y_chords[chord_mask]
@@ -589,7 +639,7 @@ def main():
     setup_logger()
     parser = get_preprocess_parser()
     args = parser.parse_args()
-    preprocess_data(dataset_names=args.datasets)
+    preprocess_data(dataset_names=args.datasets, idmt_hop_len=args.hop_length, idmt_sr=args.sample_rate)
     filter_data(
         dataset_names=args.datasets,
         filter_size=args.filter_size,
