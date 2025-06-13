@@ -6,7 +6,14 @@ from typing import Any, Dict, List
 class Config:
     SEED: int = 42
 
-    AUDIO_PARAMS: Dict[str, int] = field(default_factory=lambda: {'sample_rate': 11025, 'hop_length': 512})
+    AUDIO_PARAMS: Dict[str, int | list] = field(
+        default_factory=lambda: {
+            'sample_rate': 11025,
+            'hop_length': 512,
+            'silent_noise': [1.0, 5.0],  # Z~U(a,b)
+            'general_noise': [0.5, 2.0],  # Z~N(µ,σ)
+        }
+    )
 
     DATASETS: Dict[str, Dict] = field(
         default_factory=lambda: {

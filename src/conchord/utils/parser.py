@@ -53,6 +53,24 @@ def get_preprocess_parser():
         help='Number of audio samples between each chroma frame. Controls temporal resolution.',
     )
     parser.add_argument(
+        '-sn',
+        '--silence-noise',
+        type=float,
+        nargs=2,
+        default=config.AUDIO_PARAMS['silent_noise'],
+        metavar=('MIN', 'MAX'),
+        help='Uniform noise for silent chroma bins - Z~U(a,b)',
+    )
+    parser.add_argument(
+        '-gn',
+        '--general-noise',
+        type=float,
+        nargs=2,
+        default=config.AUDIO_PARAMS['general_noise'],
+        metavar=('MEAN', 'STD'),
+        help='Gaussian noise for all chroma bins - Z~N(µ,σ)',
+    )
+    parser.add_argument(
         '-f',
         '--filter-size',
         type=int,

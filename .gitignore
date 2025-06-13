@@ -12,6 +12,7 @@ __pycache__/
 *.lab
 *.mid
 *.arff
+*.csv
 
 # Ignore all datasets content but preserve directory structure with .gitkeep
 data/datasets/IDMT/*
@@ -29,6 +30,9 @@ data/preprocessed/*
 
 data/filtered/*
 !data/filtered/.gitkeep
+
+data/splitted/*
+!data/splitted/.gitkeep
 
 # Test files
 test.py
