@@ -75,7 +75,7 @@ def get_preprocess_parser():
         '--filter-size',
         type=int,
         default=defaults['preprocess']['filter-size'],
-        help='Total number of frames to sample (default: 200,000)',
+        help='Total number of sequences to sample (default: 300,000)',
     )
     parser.add_argument(
         '-m', '--use-max-size', action='store_true', help='Use the full available dataset without filtering'
@@ -118,6 +118,22 @@ def get_preprocess_parser():
         nargs='+',
         default=defaults['preprocess']['aam-instruments'],
         help='List of instruments to include from AAM',
+    )
+    parser.add_argument(
+        '-fp',
+        '--force-preprocess',
+        nargs='*',
+        choices=defaults['preprocess']['datasets'],
+        default=[],
+        help='Force preprocessing even if data exists (e.g., --force-prep AAM MAESTRO).',
+    )
+    parser.add_argument(
+        '-ff',
+        '--force-filter',
+        nargs='*',
+        choices=defaults['preprocess']['datasets'],
+        default=[],
+        help='Force filtering even if filtered data exists (e.g., --force-filter IDMT).',
     )
     parser.add_argument(
         '-t',

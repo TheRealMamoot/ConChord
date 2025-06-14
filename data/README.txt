@@ -62,3 +62,4 @@ NOTES
 - Sequence length is a sequence duration (default ~1s) devided by each frame length/duration 
 - The chroma vectors are normalized along the pitch axis using L1 norm.
 - The filtered directory contains the same data but filtered by user's inputs.
+- The splitted directory contains test, train and validations sets with the source dataset for each sequence.
