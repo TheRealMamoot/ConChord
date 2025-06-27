@@ -2,6 +2,7 @@ from pathlib import Path
 
 import numpy as np
 from keras import Model
+from keras.callbacks import ReduceLROnPlateau
 from keras.layers import (
     Add,
     AveragePooling2D,
@@ -81,14 +82,17 @@ def load_data(model_type: str) -> dict[str, np.ndarray]:
         data = np.load(str(DATA_DIR / f'{model_type}_{split}.npz'))
         X: np.ndarray = data['X']
         Y: np.ndarray = data['Y']
+        sources: np.ndarray = data['sources']
+        datasets: np.ndarray = data['datasets']
         if X.ndim == 3:
             X = np.expand_dims(X, axis=-1)
-        return X, Y
+        return X, Y, sources, datasets
 
-    X_train, Y_train = load_split('train')
-    X_val, Y_val = load_split('val')
-    X_test, Y_test = load_split('test')
+    X_train, Y_train, sources_train, datasets_train = load_split('train')
+    X_val, Y_val, sources_val, datasets_val = load_split('val')
+    X_test, Y_test, sources_test, datasets_test = load_split('test')
     num_classes = 128
+    encoder = None
 
     if model_type == 'chords':
         Y_all = np.concatenate([Y_train.flatten(), Y_val.flatten(), Y_test.flatten()])
@@ -111,20 +115,28 @@ def load_data(model_type: str) -> dict[str, np.ndarray]:
     return {
         'X_train': X_train,
         'Y_train': Y_train,
+        'sources_train': sources_train,
+        'datasets_train': datasets_train,
         'X_val': X_val,
         'Y_val': Y_val,
+        'sources_val': sources_val,
+        'datasets_val': datasets_val,
         'X_test': X_test,
         'Y_test': Y_test,
+        'sources_test': sources_test,
+        'datasets_test': datasets_test,
         'num_classes': num_classes,
+        'encoder': encoder,
     }
 
 
 if __name__ == '__main__':
-    model_type = 'notes'
+    model_type = 'chords'
     data = load_data(model_type=model_type)
     loss = SigmoidFocalCrossEntropy() if model_type == 'notes' else CategoricalCrossentropy()
 
     model: Model = build_classifier(num_classes=data['num_classes'], calssifier_type=model_type)
+    lr_schedule = ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=3, min_lr=1e-6, verbose=1)
     model.compile(
         optimizer=Adam(learning_rate=0.01),
         loss=loss,
@@ -132,5 +144,11 @@ if __name__ == '__main__':
     )
     model.summary()
     model.fit(
-        data['X_train'], data['Y_train'], batch_size=128, epochs=10, validation_data=(data['X_val'], data['Y_val'])
+        data['X_train'],
+        data['Y_train'],
+        batch_size=128,
+        epochs=20,
+        validation_data=(data['X_val'], data['Y_val']),
+        callbacks=[lr_schedule],
     )
+    model.save(str(Path(__file__).resolve().parents[0] / f'{model_type}.keras'))
