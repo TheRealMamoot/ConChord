@@ -1,12 +1,12 @@
 from dataclasses import dataclass, field
-from typing import Any, Dict, List
+from typing import Any
 
 
 @dataclass(frozen=True)
 class Config:
     SEED: int = 42
 
-    AUDIO_PARAMS: Dict[str, int | list] = field(
+    AUDIO_PARAMS: dict[str, int | list] = field(
         default_factory=lambda: {
             'sample_rate': 11025,
             'hop_length': 512,
@@ -15,7 +15,7 @@ class Config:
         }
     )
 
-    DATASETS: Dict[str, Dict] = field(
+    DATASETS: dict[str, dict] = field(
         default_factory=lambda: {
             'IDMT': {
                 'url': ['https://zenodo.org/records/7544213/files/IDMT-SMT-CHORDS.zip?download=1'],
@@ -34,7 +34,7 @@ class Config:
         }
     )
 
-    INSTRUMENTS: Dict[str, List[str]] = field(
+    INSTRUMENTS: dict[str, list[str]] = field(
         default_factory=lambda: {
             'AAM': [
                 'AcousticGuitar',
@@ -71,7 +71,7 @@ class Config:
         }
     )
 
-    DEFAULTS: Dict[str, Any] = field(
+    DEFAULTS: dict[str, Any] = field(
         default_factory=lambda: {
             'downloader': {'datasets': ['IDMT', 'AAM', 'MAESTRO'], 'chunk-size': 256},
             'preprocess': {

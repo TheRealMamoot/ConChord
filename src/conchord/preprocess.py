@@ -4,6 +4,7 @@ from pathlib import Path
 
 import numpy as np
 from librosa import frames_to_time, load
+from librosa.effects import time_stretch
 from librosa.feature import chroma_cqt
 from mido.midifiles.meta import KeySignatureError
 from pretty_midi import PrettyMIDI
@@ -123,6 +124,16 @@ def add_chroma_noise(
     return chroma
 
 
+def stretch_lab_segments(
+    lab_segments: list[tuple[float, float, str]], stretch_rate: float
+) -> list[tuple[float, float, str]]:
+    """
+    Modifies the .lab file segments based on the audio stretch rate during preprocessing.
+    """
+    scale = 1.0 / stretch_rate
+    return [(start * scale, end * scale, label) for start, end, label in lab_segments]
+
+
 # =====================
 # === Preprocessing ===
 # =====================
@@ -155,17 +166,18 @@ def _preprocess_idmt_dataset(
         annotations = sub_dir / f'{dir}_annotation.lab'
         lab_segments = load_lab_file(annotations)
 
-        for wav_file in tqdm(
-            wav_files,
-            desc=f'IDMT-{dir}',
-            unit='file',
-            ncols=80,
-            bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed} @ {rate_fmt}]',
-        ):
-            audio, sr = load(wav_file, sr=sample_rate)
-            chroma = chroma_cqt(y=audio, sr=sr, hop_length=hop_len).T
-            frame_times = frames_to_time(range(chroma.shape[0]), sr=sr, hop_length=hop_len)
-            chord_labels = align_labels_to_frames(frame_times, lab_segments)
+        def _preprocess_wav(
+            audio: np.ndarray, sample_rate: int | float, stretch_rate: None | float
+        ) -> tuple[np.ndarray, np.ndarray]:
+            lab_segs = lab_segments  # * in order to not load the lab file for each wav file
+
+            if stretch_rate:
+                audio = time_stretch(y=audio, rate=stretch_rate)
+                lab_segs = stretch_lab_segments(lab_segments, stretch_rate)
+
+            chroma = chroma_cqt(y=audio, sr=sample_rate, hop_length=hop_len).T
+            frame_times = frames_to_time(range(chroma.shape[0]), sr=sample_rate, hop_length=hop_len)
+            chord_labels = align_labels_to_frames(frame_times, lab_segs)
 
             num_sequences = len(chroma) // seq_len
             chroma, chord_labels = trim_to_sequence_length(chroma, chord_labels, seq_len=seq_len)
@@ -175,10 +187,26 @@ def _preprocess_idmt_dataset(
             chroma = chroma.reshape(num_sequences, seq_len, chroma.shape[1])
             chord_labels = np.array(chord_labels).reshape(num_sequences, seq_len)
 
-            X.extend(chroma)
-            Y_chords.extend(chord_labels)
-            sources.extend(['wav'] * len(chord_labels))
-            categories.extend([dir] * len(chord_labels))
+            return chroma, chord_labels
+
+        stretch_rates = [(1.0 + i * 0.1) for i in range(-4, 5, 2)]
+        for wav_file in tqdm(
+            wav_files,
+            desc=f'IDMT-{dir}',
+            unit='file',
+            ncols=80,
+            bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed} @ {rate_fmt}]',
+        ):
+            chord_labels_len = 0
+            audio, smpl_r = load(wav_file, sr=sample_rate)
+            for strch_r in stretch_rates:
+                chroma, chord_labels = _preprocess_wav(audio, sample_rate=smpl_r, stretch_rate=strch_r)
+                chord_labels_len += len(chord_labels)
+                X.extend(chroma)
+                Y_chords.extend(chord_labels)
+
+            sources.extend(['wav'] * chord_labels_len)
+            categories.extend([dir] * chord_labels_len)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     save_npz(
@@ -368,7 +396,7 @@ def preprocess_data(
     dataset_names: list[str],
     idmt_hop_len: int,
     idmt_sr: int,
-    silence_noise: list[float, float],  #! type list due to the format of parser.
+    silence_noise: list[float, float],  # ! type list due to the format of parser.
     general_noise: list[float, float],
     prep_idmt: bool = False,
     prep_aam: bool = False,
@@ -398,7 +426,7 @@ def preprocess_data(
             if out.exists() and prep_aam:
                 logging.info(prep_msg)
                 continue
-            try:  #! change noise args to tuple
+            try:  # ! change noise args to tuple
                 _preprocess_aam_dataset(src, out, tuple(silence_noise), tuple(general_noise))
             except KeyboardInterrupt:
                 logging.warning('Interrupted. Cleaning up...')
@@ -744,7 +772,7 @@ def split_data(
             X=X[selected_indices],
             Y=Y[selected_indices],
             sources=sources[selected_indices],
-            datasets=datasets[selected_indices]
+            datasets=datasets[selected_indices],
         )
         indices_lenghts.append(len(selected_indices))
     logging.info(
