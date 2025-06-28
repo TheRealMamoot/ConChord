@@ -27,6 +27,40 @@ def get_downloader_parser():
     return parser
 
 
+def get_model_parser():
+    parser = argparse.ArgumentParser(description='Model')
+    parser.add_argument(
+        '-d',
+        '--datasets',
+        type=str,
+        nargs='+',
+        default=defaults['preprocess']['datasets'],
+        choices=defaults['preprocess']['datasets'],
+        help='List of target datasets to load for model',
+    )
+    parser.add_argument(
+        '-m',
+        '--model-type',
+        type=str,
+        default='chords',
+        choices=['chords', 'notes'],
+        help='Classifier (model) type',
+    )
+    parser.add_argument(
+        '-lr',
+        '--learning-rate',
+        type=float,
+        default=0.001,
+    )
+    parser.add_argument(
+        '-e',
+        '--epochs',
+        type=int,
+        default=20,
+    )
+    return parser
+
+
 def get_preprocess_parser():
     parser = argparse.ArgumentParser(description='Preprocess')
     parser.add_argument(
