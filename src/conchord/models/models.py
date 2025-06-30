@@ -17,11 +17,13 @@ from keras.layers import (
     TimeDistributed,
 )
 from keras.losses import CategoricalCrossentropy
-from keras.metrics import BinaryAccuracy, Precision, Recall
+from keras.metrics import Precision, Recall
 from keras.optimizers.legacy import Adam
 from keras.utils import to_categorical
 from sklearn.preprocessing import LabelEncoder
 from tensorflow_addons.losses import SigmoidFocalCrossEntropy
+
+from src.conchord.utils.parser import get_model_parser
 
 
 def identity_block(X, filters):
@@ -75,8 +77,9 @@ def build_classifier(num_classes: int, calssifier_type: str, input_shape=(22, 12
     return Model(inputs=inputs, outputs=outputs)
 
 
-def load_data(model_type: str) -> dict[str, np.ndarray]:
+def load_data(model_type: str, allowed_datasets: list[str] | None = None) -> dict[str, np.ndarray]:
     DATA_DIR = Path(__file__).resolve().parents[3] / 'data' / 'splitted'
+    print(allowed_datasets)
 
     def load_split(split: str):
         data = np.load(str(DATA_DIR / f'{model_type}_{split}.npz'))
@@ -86,6 +89,13 @@ def load_data(model_type: str) -> dict[str, np.ndarray]:
         datasets: np.ndarray = data['datasets']
         if X.ndim == 3:
             X = np.expand_dims(X, axis=-1)
+        if allowed_datasets is not None:
+            mask = np.isin(datasets, allowed_datasets)
+            X = X[mask]
+            Y = Y[mask]
+            sources = sources[mask]
+            datasets = datasets[mask]
+
         return X, Y, sources, datasets
 
     X_train, Y_train, sources_train, datasets_train = load_split('train')
@@ -131,24 +141,30 @@ def load_data(model_type: str) -> dict[str, np.ndarray]:
 
 
 if __name__ == '__main__':
-    model_type = 'chords'
-    data = load_data(model_type=model_type)
-    loss = SigmoidFocalCrossEntropy() if model_type == 'notes' else CategoricalCrossentropy()
+    parser = get_model_parser()
+    args = parser.parse_args()
+    data = load_data(model_type=args.model_type, allowed_datasets=args.datasets)
+    loss = SigmoidFocalCrossEntropy() if args.model_type == 'notes' else CategoricalCrossentropy()
 
-    model: Model = build_classifier(num_classes=data['num_classes'], calssifier_type=model_type)
+    model: Model = build_classifier(num_classes=data['num_classes'], calssifier_type=args.model_type)
     lr_schedule = ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=3, min_lr=1e-6, verbose=1)
     model.compile(
-        optimizer=Adam(learning_rate=0.01),
+        optimizer=Adam(learning_rate=args.learning_rate),
         loss=loss,
-        metrics=['accuracy', BinaryAccuracy(name='bin_acc'), Precision(name='precision'), Recall(name='recall')],
+        metrics=[
+            'accuracy',
+            #  BinaryAccuracy(name='bin_acc'),
+            Precision(name='precision'),
+            Recall(name='recall'),
+        ],
     )
     model.summary()
     model.fit(
         data['X_train'],
         data['Y_train'],
         batch_size=128,
-        epochs=20,
+        epochs=args.epochs,
         validation_data=(data['X_val'], data['Y_val']),
         callbacks=[lr_schedule],
     )
-    model.save(str(Path(__file__).resolve().parents[0] / f'{model_type}.keras'))
+    model.save(str(Path(__file__).resolve().parents[0] / f'{args.model_type}.keras'))

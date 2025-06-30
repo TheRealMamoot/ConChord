@@ -151,6 +151,7 @@ def _preprocess_idmt_dataset(
     Processes the IDMT dataset by:
     - Loads .wav audio files and corresponding .lab annotation files.
     - Extracts chroma features using Constant-Q Transform (CQT).
+    - Stretches the audio for data augmentation.
     - Aligns chroma frames with chord labels.
     - Reshapes frames into sequences.
     Args:
